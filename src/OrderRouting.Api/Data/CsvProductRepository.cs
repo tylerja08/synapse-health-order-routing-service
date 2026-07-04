@@ -14,7 +14,7 @@ public sealed class CsvProductRepository
 
     public int Count => _products.Count;
 
-    public IReadOnlyList<Product> All => _products.Values.ToArray();
+    public IEnumerable<Product> All => _products.Values;
 
     public Product? Find(string productCode)
     {
@@ -23,10 +23,9 @@ public sealed class CsvProductRepository
 
     public static CsvProductRepository Load(string path, ILogger logger)
     {
-        var table = CsvTableReader.Read(path);
         var products = new Dictionary<string, Product>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var row in table.Rows)
+        foreach (var row in CsvTableReader.ReadRows(path))
         {
             var code = row.Required("product_code");
             var name = row.Required("product_name");

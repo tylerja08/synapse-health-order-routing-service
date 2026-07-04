@@ -53,6 +53,8 @@ The service loads `service_data/products.csv` and `service_data/suppliers.csv` a
 - `customer_satisfaction_score` is numeric or `no ratings yet`.
 - `can_mail_order?` is `y` or `n`.
 
+CSV loading streams rows to avoid full-file transient allocations, but normalized product and supplier data are intentionally kept in memory for fast local routing.
+
 ## API Behavior
 
 - `GET /health` returns a basic health response.

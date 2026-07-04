@@ -19,11 +19,10 @@ public sealed class CsvSupplierRepository
 
     public static CsvSupplierRepository Load(string path)
     {
-        var table = CsvTableReader.Read(path);
         var suppliers = new List<Supplier>();
         var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var row in table.Rows)
+        foreach (var row in CsvTableReader.ReadRows(path))
         {
             var id = row.Required("supplier_id");
             if (!ids.Add(id))

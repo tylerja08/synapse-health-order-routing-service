@@ -422,8 +422,8 @@ static int RunDataAudit()
     var suppliersPath = Path.Combine(root, "service_data", "suppliers.csv");
     var logger = LoggerFactory.Create(_ => { }).CreateLogger("audit");
 
-    var productTable = CsvTableReader.Read(productsPath);
-    var supplierTable = CsvTableReader.Read(suppliersPath);
+    var productCsvRows = CsvTableReader.CountDataRows(productsPath);
+    var supplierCsvRows = CsvTableReader.CountDataRows(suppliersPath);
     var products = CsvProductRepository.Load(productsPath, logger);
     var suppliers = CsvSupplierRepository.Load(suppliersPath);
     var router = new OrderRouter(suppliers, Config(("Routing:LocalRatingSimilarityDelta", "0.5")));
@@ -463,7 +463,7 @@ static int RunDataAudit()
         }
     }
 
-    var firstZipBySupplier = supplierTable.Rows.ToDictionary(
+    var firstZipBySupplier = CsvTableReader.ReadRows(suppliersPath).ToDictionary(
         row => row.Required("supplier_id"),
         row => FirstZipFromServiceZips(row.Required("service_zips")),
         StringComparer.Ordinal);
@@ -501,11 +501,11 @@ static int RunDataAudit()
     var regionalCoverage = BuildRegionalCoverage(productsByCategory, suppliers);
 
     var summary = new DataAuditSummary(
-        ProductCsvRows: productTable.Rows.Count,
+        ProductCsvRows: productCsvRows,
         UniqueProductsLoaded: products.Count,
-        DuplicateProductRowsIgnored: productTable.Rows.Count - products.Count,
+        DuplicateProductRowsIgnored: productCsvRows - products.Count,
         ProductCategoryCount: productCategories.Count,
-        SupplierCsvRows: supplierTable.Rows.Count,
+        SupplierCsvRows: supplierCsvRows,
         SuppliersLoaded: suppliers.Count,
         SupplierCategoryCount: supplierCategories.Count,
         RatedSupplierCount: suppliers.All.Count(supplier => supplier.CustomerSatisfactionScore is not null),

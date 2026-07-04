@@ -60,18 +60,92 @@ public static class CsvTableReader
 {
     public static CsvTable Read(string path)
     {
+        var rows = ReadRows(path).ToArray();
+        var headers = ReadHeaders(path);
+        return new CsvTable(headers, rows);
+    }
+
+    public static IReadOnlyList<string> ReadHeaders(string path)
+    {
         if (!File.Exists(path))
         {
             throw new DataLoadException($"CSV file '{path}' does not exist.");
         }
 
-        var rows = Parse(File.ReadAllText(path));
-        if (rows.Count == 0)
+        using var reader = File.OpenText(path);
+        var records = EnumerateRecords(reader).GetEnumerator();
+        if (!records.MoveNext())
         {
             throw new DataLoadException($"CSV file '{path}' is empty.");
         }
 
-        var headers = rows[0].Select(header => header.Trim()).ToArray();
+        return ValidateHeaders(records.Current, path);
+    }
+
+    public static IEnumerable<CsvRow> ReadRows(string path)
+    {
+        if (!File.Exists(path))
+        {
+            throw new DataLoadException($"CSV file '{path}' does not exist.");
+        }
+
+        using var reader = File.OpenText(path);
+        var recordNumber = 0;
+        string[]? headers = null;
+
+        foreach (var record in EnumerateRecords(reader))
+        {
+            recordNumber++;
+            if (recordNumber == 1)
+            {
+                headers = ValidateHeaders(record, path);
+                continue;
+            }
+
+            if (record.Count == 1 && string.IsNullOrWhiteSpace(record[0]))
+            {
+                continue;
+            }
+
+            if (headers is null)
+            {
+                throw new DataLoadException($"CSV file '{path}' is empty.");
+            }
+
+            if (record.Count != headers.Length)
+            {
+                throw new DataLoadException($"CSV file '{path}' row {recordNumber} has {record.Count} fields, expected {headers.Length}.");
+            }
+
+            var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            for (var fieldIndex = 0; fieldIndex < headers.Length; fieldIndex++)
+            {
+                values[headers[fieldIndex]] = record[fieldIndex];
+            }
+
+            yield return new CsvRow(recordNumber, values);
+        }
+
+        if (recordNumber == 0)
+        {
+            throw new DataLoadException($"CSV file '{path}' is empty.");
+        }
+    }
+
+    public static int CountDataRows(string path)
+    {
+        var count = 0;
+        foreach (var _ in ReadRows(path))
+        {
+            count++;
+        }
+
+        return count;
+    }
+
+    private static string[] ValidateHeaders(IReadOnlyList<string> headerRecord, string path)
+    {
+        var headers = headerRecord.Select(header => header.Trim()).ToArray();
         if (headers.Any(string.IsNullOrWhiteSpace))
         {
             throw new DataLoadException($"CSV file '{path}' has a blank header.");
@@ -83,30 +157,84 @@ public static class CsvTableReader
             throw new DataLoadException($"CSV file '{path}' has duplicate header '{duplicateHeaders.Key}'.");
         }
 
-        var dataRows = new List<CsvRow>();
-        for (var index = 1; index < rows.Count; index++)
+        return headers;
+    }
+
+    private static IEnumerable<IReadOnlyList<string>> EnumerateRecords(TextReader reader)
+    {
+        var row = new List<string>();
+        var field = new StringBuilder();
+        var inQuotes = false;
+        var fieldStartedWithQuote = false;
+
+        while (reader.Read() is var current && current != -1)
         {
-            var row = rows[index];
-            if (row.Count == 1 && string.IsNullOrWhiteSpace(row[0]))
+            var ch = (char)current;
+            if (inQuotes)
             {
+                if (ch == '"')
+                {
+                    if (reader.Peek() == '"')
+                    {
+                        field.Append('"');
+                        reader.Read();
+                    }
+                    else
+                    {
+                        inQuotes = false;
+                    }
+                }
+                else
+                {
+                    field.Append(ch);
+                }
+
                 continue;
             }
 
-            if (row.Count != headers.Length)
+            if (ch == '"' && field.Length == 0 && !fieldStartedWithQuote)
             {
-                throw new DataLoadException($"CSV file '{path}' row {index + 1} has {row.Count} fields, expected {headers.Length}.");
+                inQuotes = true;
+                fieldStartedWithQuote = true;
+                continue;
             }
 
-            var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            for (var fieldIndex = 0; fieldIndex < headers.Length; fieldIndex++)
+            if (ch == ',')
             {
-                values[headers[fieldIndex]] = row[fieldIndex];
+                row.Add(field.ToString());
+                field.Clear();
+                fieldStartedWithQuote = false;
+                continue;
             }
 
-            dataRows.Add(new CsvRow(index + 1, values));
+            if (ch == '\r' || ch == '\n')
+            {
+                if (ch == '\r' && reader.Peek() == '\n')
+                {
+                    reader.Read();
+                }
+
+                row.Add(field.ToString());
+                yield return row;
+                row = new List<string>();
+                field.Clear();
+                fieldStartedWithQuote = false;
+                continue;
+            }
+
+            field.Append(ch);
         }
 
-        return new CsvTable(headers, dataRows);
+        if (inQuotes)
+        {
+            throw new DataLoadException("CSV input ended inside a quoted field.");
+        }
+
+        if (field.Length > 0 || fieldStartedWithQuote || row.Count > 0)
+        {
+            row.Add(field.ToString());
+            yield return row;
+        }
     }
 
     public static IReadOnlyList<IReadOnlyList<string>> Parse(string text)

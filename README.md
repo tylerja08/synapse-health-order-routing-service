@@ -127,3 +127,7 @@ curl http://localhost:8080/health
 - The router prioritizes feasibility, fewer shipments, higher quantity-weighted supplier rating, local fulfillment when ratings are similar, then supplier ID tie-breaking.
 - Unrated suppliers rank after all rated suppliers.
 - Identical duplicate product rows are tolerated; conflicting duplicates fail startup.
+
+## Data Size Notes
+
+The service intentionally keeps normalized product and supplier data in memory after startup so routing does not depend on external services or repeated disk reads. CSV loading is streamed row-by-row to avoid reading entire large files into memory before building those indexes. If the data grows far beyond this assessment scale, monitor process memory and consider moving supplier/product lookup to a database or adding category-specific indexes based on measured bottlenecks.
