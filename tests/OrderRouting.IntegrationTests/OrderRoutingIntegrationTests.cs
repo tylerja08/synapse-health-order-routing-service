@@ -162,7 +162,13 @@ public sealed class OrderRoutingIntegrationTests
             throw new InvalidOperationException("Expected non-zero exit code when startup data is invalid.");
         }
 
-        return output.ToString();
+        var text = output.ToString();
+        if (text.Contains("Unhandled exception", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Expected startup failure to be logged without surfacing an unhandled exception.");
+        }
+
+        return text;
     }
 
     private static async Task VerifyApiMalformedJson(HttpClient client)

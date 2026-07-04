@@ -59,8 +59,28 @@ try
 catch (DataLoadException exception)
 {
     app.Logger.LogCritical(exception, "Failed to load startup data.");
-    throw;
+    Environment.ExitCode = 1;
+    return;
 }
+
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        var exceptionFeature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+        if (exceptionFeature?.Error is not null)
+        {
+            app.Logger.LogError(exceptionFeature.Error, "Unhandled request exception.");
+        }
+
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        await Results.Problem(
+            title: "An unexpected error occurred.",
+            detail: "The request could not be completed.",
+            statusCode: StatusCodes.Status500InternalServerError)
+            .ExecuteAsync(context);
+    });
+});
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapGet("/openapi.json", ApiDocumentation.OpenApiJson);

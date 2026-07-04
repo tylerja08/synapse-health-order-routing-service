@@ -34,6 +34,7 @@ The API smoke test now starts the service locally with an ephemeral port and ver
 - Missing startup product data causes the API process to fail startup with a non-zero exit.
 - Missing startup supplier data causes the API process to fail startup with a non-zero exit.
 - Malformed startup supplier data causes the API process to fail startup with a non-zero exit.
+- Startup data failures are logged and exit non-zero without surfacing an unhandled exception dialog.
 - `GET /openapi.json` includes `/health`, `/api/route`, required request fields, priority enum values, item required fields, and success/infeasible examples.
 
 ## Unit Coverage Added
@@ -57,6 +58,7 @@ The suite now also includes focused tests for:
 - The full supplier data set has multiple high-quality mail-order wheelchair suppliers, so mail-order integration assertions should verify fulfillment behavior instead of pinning to one sentinel supplier ID.
 - The startup-failure test confirms missing product data fails fast before serving traffic.
 - The startup-failure coverage now also confirms missing supplier data and malformed supplier ratings fail fast before serving traffic.
+- Startup failure handling now logs the data-load exception and exits cleanly with code `1`, avoiding user-facing unhandled exception popups during integration runs.
 - The request body limit is now asserted as part of the API contract with HTTP 413 for oversized JSON payloads.
 - The suite now uses separate xUnit projects: `OrderRouting.UnitTests` for fast CI feedback and `OrderRouting.IntegrationTests` for API/process checks in a CD or gated rollout stage.
 
