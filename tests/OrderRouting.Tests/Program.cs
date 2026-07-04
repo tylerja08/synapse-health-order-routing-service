@@ -242,6 +242,7 @@ static async Task ApiPostRouteSmokeTest()
     {
         using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
         await WaitForHealth(client);
+        await VerifyApiDocs(client);
 
         var sample = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "test_data", "sample_orders.json"))).RootElement[0].GetRawText();
         using var content = new StringContent(sample, Encoding.UTF8, "application/json");
@@ -260,6 +261,22 @@ static async Task ApiPostRouteSmokeTest()
             process.Kill(entireProcessTree: true);
         }
     }
+}
+
+static async Task VerifyApiDocs(HttpClient client)
+{
+    using var swagger = await client.GetAsync("/swagger");
+    AssertEqual(System.Net.HttpStatusCode.OK, swagger.StatusCode);
+    var swaggerHtml = await swagger.Content.ReadAsStringAsync();
+    if (!swaggerHtml.Contains("Order Routing Service API", StringComparison.Ordinal))
+    {
+        throw new InvalidOperationException("Swagger page did not contain expected title.");
+    }
+
+    using var openApi = await client.GetAsync("/openapi.json");
+    AssertEqual(System.Net.HttpStatusCode.OK, openApi.StatusCode);
+    using var document = JsonDocument.Parse(await openApi.Content.ReadAsStringAsync());
+    AssertEqual("3.0.3", document.RootElement.GetProperty("openapi").GetString());
 }
 
 static async Task WaitForHealth(HttpClient client)

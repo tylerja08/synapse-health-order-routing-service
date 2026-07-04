@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http.Json;
+using OrderRouting.Api;
 using OrderRouting.Api.Data;
 using OrderRouting.Api.Models;
 using OrderRouting.Api.Routing;
@@ -62,6 +63,8 @@ catch (DataLoadException exception)
 }
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+app.MapGet("/openapi.json", ApiDocumentation.OpenApiJson);
+app.MapGet("/swagger", ApiDocumentation.SwaggerPage);
 
 app.MapPost("/api/route", async (
     RouteOrderRequest request,

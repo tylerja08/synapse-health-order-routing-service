@@ -36,6 +36,20 @@ The API listens on port `8080` by default.
 curl http://localhost:8080/health
 ```
 
+## Interactive API Docs
+
+Open the local interactive API page in a browser:
+
+```text
+http://localhost:8080/swagger
+```
+
+The OpenAPI document is available at:
+
+```text
+http://localhost:8080/openapi.json
+```
+
 ## Route An Order
 
 ```powershell

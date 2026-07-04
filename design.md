@@ -8,6 +8,8 @@ The service exposes:
 
 - `POST /api/route` for routing decisions.
 - `GET /health` for local and Docker smoke checks.
+- `GET /swagger` for local interactive API execution.
+- `GET /openapi.json` for the API document used by the interactive docs.
 
 All business validation and routing failures return HTTP 200 with `feasible: false`, per the requirements. When multiple route requests are waiting at the same time, higher priority orders are routed before lower priority orders.
 

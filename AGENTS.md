@@ -42,6 +42,8 @@ The service loads `service_data/products.csv` and `service_data/suppliers.csv` a
 ## API Behavior
 
 - `GET /health` returns a basic health response.
+- `GET /swagger` returns local interactive API documentation.
+- `GET /openapi.json` returns the OpenAPI document used by the interactive docs.
 - `POST /api/route` returns HTTP 200 for parsed business requests.
 - Validation or routing failures use `{ "feasible": false, "errors": [...] }`.
 - Malformed JSON returns HTTP 400.
@@ -65,4 +67,4 @@ docker build -t order-routing-service .
 docker run --rm -p 8080:8080 order-routing-service
 ```
 
-The image includes the required `docs` data files and runs as the non-root `app` user from the .NET runtime image.
+The image includes the required `service_data` files and runs as the non-root `app` user from the .NET runtime image.
