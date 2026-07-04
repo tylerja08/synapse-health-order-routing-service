@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
@@ -7,6 +8,11 @@ using Microsoft.Extensions.Logging;
 using OrderRouting.Api.Data;
 using OrderRouting.Api.Models;
 using OrderRouting.Api.Routing;
+
+if (args.Contains("--stress", StringComparer.OrdinalIgnoreCase))
+{
+    return await RunStressTest(args);
+}
 
 var tests = new (string Name, Func<Task> Run)[]
 {
@@ -236,7 +242,11 @@ static async Task ApiPostRouteSmokeTest()
         RedirectStandardError = true
     };
     process.StartInfo.Environment["PORT"] = port.ToString();
+    process.OutputDataReceived += (_, _) => { };
+    process.ErrorDataReceived += (_, _) => { };
     process.Start();
+    process.BeginOutputReadLine();
+    process.BeginErrorReadLine();
 
     try
     {
@@ -261,6 +271,167 @@ static async Task ApiPostRouteSmokeTest()
             process.Kill(entireProcessTree: true);
         }
     }
+}
+
+static async Task<int> RunStressTest(string[] args)
+{
+    var root = FindRepoRoot();
+    var orderPath = GetOption(args, "--orders") ?? Path.Combine(root, "test_data", "performance_orders.json");
+    var concurrency = int.Parse(GetOption(args, "--concurrency") ?? "25");
+    var port = int.Parse(GetOption(args, "--port") ?? "18090");
+
+    var orders = JsonSerializer.Deserialize<List<JsonElement>>(File.ReadAllText(orderPath), new JsonSerializerOptions
+    {
+        PropertyNameCaseInsensitive = true
+    }) ?? [];
+
+    if (orders.Count == 0)
+    {
+        throw new InvalidOperationException($"No orders found in {orderPath}.");
+    }
+
+    using var process = new Process();
+    process.StartInfo = new ProcessStartInfo("dotnet", $"run --no-build --project \"{Path.Combine(root, "src", "OrderRouting.Api", "OrderRouting.Api.csproj")}\"")
+    {
+        WorkingDirectory = root,
+        UseShellExecute = false,
+        RedirectStandardOutput = true,
+        RedirectStandardError = true
+    };
+    process.StartInfo.Environment["PORT"] = port.ToString();
+    process.OutputDataReceived += (_, _) => { };
+    process.ErrorDataReceived += (_, _) => { };
+    process.Start();
+    process.BeginOutputReadLine();
+    process.BeginErrorReadLine();
+
+    try
+    {
+        using var client = new HttpClient
+        {
+            BaseAddress = new Uri($"http://127.0.0.1:{port}"),
+            Timeout = TimeSpan.FromSeconds(60)
+        };
+        await WaitForHealth(client);
+
+        var stopwatch = Stopwatch.StartNew();
+        var results = new List<StressResult>();
+        var nextIndex = 0;
+        var gate = new object();
+        var workers = Enumerable.Range(0, concurrency).Select(_ => Task.Run(async () =>
+        {
+            while (true)
+            {
+                int index;
+                lock (gate)
+                {
+                    if (nextIndex >= orders.Count)
+                    {
+                        return;
+                    }
+
+                    index = nextIndex++;
+                }
+
+                var order = orders[index];
+                var started = Stopwatch.GetTimestamp();
+                HttpStatusCode statusCode;
+                bool feasible;
+                int shipmentCount;
+                int errorCount;
+                string? error = null;
+
+                try
+                {
+                    using var content = new StringContent(order.GetRawText(), Encoding.UTF8, "application/json");
+                    using var response = await client.PostAsync("/api/route", content);
+                    statusCode = response.StatusCode;
+                    var route = await response.Content.ReadFromJsonAsync<RouteOrderResponse>();
+                    feasible = route?.Feasible ?? false;
+                    shipmentCount = route?.Routing?.Count ?? 0;
+                    errorCount = route?.Errors?.Count ?? 0;
+                }
+                catch (Exception exception)
+                {
+                    statusCode = 0;
+                    feasible = false;
+                    shipmentCount = 0;
+                    errorCount = 1;
+                    error = exception.GetType().Name + ": " + exception.Message;
+                }
+
+                var elapsed = Stopwatch.GetElapsedTime(started);
+                lock (results)
+                {
+                    results.Add(new StressResult(index, statusCode, feasible, shipmentCount, errorCount, elapsed.TotalMilliseconds, error));
+                }
+            }
+        })).ToArray();
+
+        await Task.WhenAll(workers);
+        stopwatch.Stop();
+
+        var orderedLatencies = results.Select(result => result.ElapsedMs).OrderBy(value => value).ToArray();
+        var summary = new StressSummary(
+            TotalOrders: orders.Count,
+            CompletedRequests: results.Count,
+            Concurrency: concurrency,
+            TotalElapsedMs: stopwatch.Elapsed.TotalMilliseconds,
+            RequestsPerSecond: results.Count / Math.Max(stopwatch.Elapsed.TotalSeconds, 0.001),
+            Http200Count: results.Count(result => result.StatusCode == HttpStatusCode.OK),
+            FeasibleCount: results.Count(result => result.Feasible),
+            InfeasibleCount: results.Count(result => result.StatusCode == HttpStatusCode.OK && !result.Feasible),
+            FailedRequestCount: results.Count(result => result.StatusCode != HttpStatusCode.OK),
+            P50Ms: Percentile(orderedLatencies, 0.50),
+            P95Ms: Percentile(orderedLatencies, 0.95),
+            P99Ms: Percentile(orderedLatencies, 0.99),
+            MaxMs: orderedLatencies.LastOrDefault());
+
+        Console.WriteLine(JsonSerializer.Serialize(summary, new JsonSerializerOptions { WriteIndented = true }));
+
+        var failures = results.Where(result => result.StatusCode != HttpStatusCode.OK || result.Error is not null).Take(5).ToArray();
+        if (failures.Length > 0)
+        {
+            Console.WriteLine("Sample failures:");
+            foreach (var failure in failures)
+            {
+                Console.WriteLine($"  orderIndex={failure.OrderIndex} status={(int)failure.StatusCode} error={failure.Error}");
+            }
+        }
+
+        return summary.FailedRequestCount == 0 ? 0 : 1;
+    }
+    finally
+    {
+        if (!process.HasExited)
+        {
+            process.Kill(entireProcessTree: true);
+        }
+    }
+}
+
+static string? GetOption(string[] args, string name)
+{
+    for (var index = 0; index < args.Length - 1; index++)
+    {
+        if (string.Equals(args[index], name, StringComparison.OrdinalIgnoreCase))
+        {
+            return args[index + 1];
+        }
+    }
+
+    return null;
+}
+
+static double Percentile(IReadOnlyList<double> sortedValues, double percentile)
+{
+    if (sortedValues.Count == 0)
+    {
+        return 0;
+    }
+
+    var index = (int)Math.Ceiling(percentile * sortedValues.Count) - 1;
+    return sortedValues[Math.Clamp(index, 0, sortedValues.Count - 1)];
 }
 
 static async Task VerifyApiDocs(HttpClient client)
@@ -407,3 +578,27 @@ static void AssertSequence(IReadOnlyList<string> expected, IReadOnlyList<string>
         throw new InvalidOperationException($"Expected sequence '{string.Join(", ", expected)}', got '{string.Join(", ", actual)}'.");
     }
 }
+
+internal sealed record StressResult(
+    int OrderIndex,
+    HttpStatusCode StatusCode,
+    bool Feasible,
+    int ShipmentCount,
+    int ErrorCount,
+    double ElapsedMs,
+    string? Error);
+
+internal sealed record StressSummary(
+    int TotalOrders,
+    int CompletedRequests,
+    int Concurrency,
+    double TotalElapsedMs,
+    double RequestsPerSecond,
+    int Http200Count,
+    int FeasibleCount,
+    int InfeasibleCount,
+    int FailedRequestCount,
+    double P50Ms,
+    double P95Ms,
+    double P99Ms,
+    double MaxMs);

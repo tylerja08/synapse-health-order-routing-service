@@ -79,6 +79,16 @@ dotnet run --project tests\OrderRouting.Tests\OrderRouting.Tests.csproj
 
 It covers validation, product lookup, ZIP parsing, supplier eligibility, routing decisions, priority scheduling, and an HTTP smoke test for `POST /api/route`.
 
+## Stress Test
+
+Run the reusable stress test against the generated 500-order data set:
+
+```powershell
+dotnet run --project tests\OrderRouting.Tests\OrderRouting.Tests.csproj -- --stress --orders test_data\performance_orders.json --concurrency 25
+```
+
+The runner starts the API locally, sends requests concurrently, and prints latency/throughput metrics. Current findings are documented in `docs/performance-findings.md`.
+
 ## Docker
 
 Build the image:

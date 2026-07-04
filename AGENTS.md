@@ -20,6 +20,12 @@ dotnet build OrderRouting.sln
 dotnet run --project tests\OrderRouting.Tests\OrderRouting.Tests.csproj
 ```
 
+Run the performance stress test:
+
+```powershell
+dotnet run --project tests\OrderRouting.Tests\OrderRouting.Tests.csproj -- --stress --orders test_data\performance_orders.json --concurrency 25
+```
+
 ## Run The Service
 
 ```powershell
