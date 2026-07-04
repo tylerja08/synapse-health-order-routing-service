@@ -41,7 +41,7 @@ public sealed class CsvRow
             throw new DataLoadException($"Row {RowNumber} has blank required column '{header}'.");
         }
 
-        return value.Trim();
+        return CsvInputSecurity.ValidateCell(header, value, RowNumber);
     }
 
     public string RequiredAny(params string[] headers)
@@ -50,7 +50,7 @@ public sealed class CsvRow
         {
             if (_values.TryGetValue(header, out var value) && !string.IsNullOrWhiteSpace(value))
             {
-                return value.Trim();
+                return CsvInputSecurity.ValidateCell(header, value, RowNumber);
             }
         }
 

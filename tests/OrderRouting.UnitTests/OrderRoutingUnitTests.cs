@@ -92,6 +92,22 @@ public sealed class OrderRoutingUnitTests
     }
 
     [Fact]
+    public Task CsvLoadersRejectSpreadsheetFormulaInjectionPrefixes()
+    {
+        AssertThrows<DataLoadException>(() => CsvProductRepository.Load(
+            TempFile("products", "product_code,product_name,category\r\n=CMD,Injected Product,wheelchair"),
+            LoggerFactory.Create(_ => { }).CreateLogger("test")));
+
+        AssertThrows<DataLoadException>(() => CsvSupplierRepository.Load(
+            TempFile("suppliers", "supplier_id,suplier_name,service_zips,product_categories,customer_satisfaction_score,can_mail_order?\r\nSUP-FORMULA,@Injected Supplier,10001,wheelchair,8,y")));
+
+        AssertThrows<DataLoadException>(() => CsvSupplierRepository.Load(
+            TempFile("suppliers", "supplier_id,suplier_name,service_zips,product_categories,customer_satisfaction_score,can_mail_order?\r\nSUP-FORMULA,Supplier,10001,+wheelchair,8,y")));
+
+        return Task.CompletedTask;
+    }
+
+    [Fact]
     public Task ZipCoverageParsesValuesAndRanges()
     {
         var coverage = ZipCoverage.Parse("10001, 10005-10007", "test");

@@ -34,6 +34,7 @@ public sealed class OrderRoutingIntegrationTests
         {
             using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
             await WaitForHealth(client);
+            await VerifySecurityHeaders(client);
             await VerifyApiDocs(client);
 
             var sample = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "test_data", "sample_orders.json"))).RootElement[0].GetRawText();
@@ -175,6 +176,15 @@ public sealed class OrderRoutingIntegrationTests
     {
         using var response = await client.PostAsync("/api/route", new StringContent("{ invalid json", Encoding.UTF8, "application/json"));
         AssertEqual(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    private static async Task VerifySecurityHeaders(HttpClient client)
+    {
+        using var response = await client.GetAsync("/health");
+        AssertEqual(HttpStatusCode.OK, response.StatusCode);
+        AssertHeader(response, "X-Content-Type-Options", "nosniff");
+        AssertHeader(response, "X-Frame-Options", "DENY");
+        AssertHeader(response, "Referrer-Policy", "no-referrer");
     }
 
     private static async Task VerifyApiBusinessValidation(HttpClient client)
@@ -428,5 +438,13 @@ public sealed class OrderRoutingIntegrationTests
         }
 
         throw new InvalidOperationException($"Expected JSON array to contain '{expected}'.");
+    }
+
+    private static void AssertHeader(HttpResponseMessage response, string name, string expected)
+    {
+        if (!response.Headers.TryGetValues(name, out var values) || !values.Contains(expected, StringComparer.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"Expected response header '{name}' to contain '{expected}'.");
+        }
     }
 }

@@ -5,7 +5,9 @@ WORKDIR /src
 
 COPY OrderRouting.sln ./
 COPY src/OrderRouting.Api/OrderRouting.Api.csproj src/OrderRouting.Api/
-COPY tests/OrderRouting.Tests/OrderRouting.Tests.csproj tests/OrderRouting.Tests/
+COPY tests/OrderRouting.UnitTests/OrderRouting.UnitTests.csproj tests/OrderRouting.UnitTests/
+COPY tests/OrderRouting.IntegrationTests/OrderRouting.IntegrationTests.csproj tests/OrderRouting.IntegrationTests/
+COPY tools/OrderRouting.Diagnostics/OrderRouting.Diagnostics.csproj tools/OrderRouting.Diagnostics/
 RUN dotnet restore OrderRouting.sln
 
 COPY . .

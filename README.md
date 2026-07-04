@@ -100,6 +100,10 @@ dotnet run --project tools\OrderRouting.Diagnostics\OrderRouting.Diagnostics.csp
 
 The audit loads all service data, checks product/supplier category coverage, routes every unique product, validates every supplier against at least one known product/category/local ZIP, reports per-category coverage counts, and samples local coverage across major ZIP regions. Current findings are documented in `docs/data-audit-findings.md`.
 
+## Security
+
+Security review findings and production hardening notes are documented in `docs/security-findings.md`.
+
 ## Docker
 
 Build the image:
@@ -128,6 +132,7 @@ curl http://localhost:8080/health
 - The router prioritizes feasibility, fewer shipments, higher quantity-weighted supplier rating, local fulfillment when ratings are similar, then supplier ID tie-breaking.
 - Unrated suppliers rank after all rated suppliers.
 - Identical duplicate product rows are tolerated; conflicting duplicates fail startup.
+- CSV values that begin with spreadsheet formula prefixes are rejected at startup to reduce CSV/formula injection risk.
 
 ## Data Size Notes
 

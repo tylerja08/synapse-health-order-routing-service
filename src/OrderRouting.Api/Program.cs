@@ -82,6 +82,14 @@ app.UseExceptionHandler(errorApp =>
     });
 });
 
+app.Use(async (context, next) =>
+{
+    context.Response.Headers.TryAdd("X-Content-Type-Options", "nosniff");
+    context.Response.Headers.TryAdd("X-Frame-Options", "DENY");
+    context.Response.Headers.TryAdd("Referrer-Policy", "no-referrer");
+    await next();
+});
+
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapGet("/openapi.json", ApiDocumentation.OpenApiJson);
 app.MapGet("/swagger", ApiDocumentation.SwaggerPage);
