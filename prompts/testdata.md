@@ -1,16 +1,16 @@
 # Test Data #
 
 ## Document Mapping ##
-- [suppliers.csv](../docs/suppliers.csv)
+- [suppliers.csv](../service_data/suppliers.csv)
   - List of suppliers with their capabilities
   - Detailed information located at [Supplier Data Structure](#supplier-data-structure)
-- [products.csv](../docs/products.csv)
+- [products.csv](../service_data/products.csv)
   - List of 200 products mapping product codes to categories
-- [sample_orders.json](../docs/sample_orders.json)
+- [sample_orders.json](../test_data/sample_orders.json)
   - 3 example orders to test our routing logic
 
 ### Supplier Data Structure ###
-The [suppliers.csv](../docs/suppliers.csv) contains realistic, somewhat messy data:
+The [suppliers.csv](../service_data/suppliers.csv) contains realistic, somewhat messy data:
 - **supplier_id:** Unique identifier (e.g., "SUP-001")
 - **supplier_name:** Business name
 - **service_zips:** ZIP codes served

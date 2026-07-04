@@ -4,8 +4,8 @@
 The order routing service routes orders to suppliers based on a set of business rules.
 
 ## Core Service Functionality ## 
-- Accepts an order with multiple line items. [Example](../docs/sample_orders.json)
-- Reads supplier and product data from [suppliers.csv](../docs/suppliers.csv) and [products.csv](../docs/products.csv)
+- Accepts an order with multiple line items. [Example](../test_data/sample_orders.json)
+- Reads supplier and product data from [suppliers.csv](../service_data/suppliers.csv) and [products.csv](../service_data/products.csv)
 - Routing API that considers:  
   - Product capabilities:
     - Can the supplier fulfill this product category? 

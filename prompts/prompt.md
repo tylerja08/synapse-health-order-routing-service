@@ -19,7 +19,7 @@
 
 - Read `prompts/requirements.md` for service behavior and response shape.
 - Read `prompts/testdata.md` for data format details and edge cases.
-- Inspect `docs/products.csv`, `docs/suppliers.csv`, and `docs/sample_orders.json` before implementing parsing or routing logic.
+- Inspect `service_data/products.csv`, `service_data/suppliers.csv`, and `test_data/sample_orders.json` before implementing parsing or routing logic.
 
 ## 4. Functional Requirements
 
@@ -29,8 +29,8 @@
   - `customer_zip`
   - `mail_order`
   - `items`
-- Load product data from `docs/products.csv`.
-- Load supplier data from `docs/suppliers.csv`.
+- Load product data from `service_data/products.csv`.
+- Load supplier data from `service_data/suppliers.csv`.
 - Return HTTP 200 for both feasible and infeasible routing results.
 - Use `feasible: true` with a `routing` array when the order can be routed.
 - Use `feasible: false` with an `errors` array when validation or routing fails.
@@ -91,7 +91,7 @@
 - Expose the service port.
 - Set a clear container start command.
 - Add a `.dockerignore` to keep build context small.
-- Include data files needed at runtime inside the image.
+- Include service data files needed at runtime inside the image.
 
 ## 10. Local Development Instructions
 
@@ -117,7 +117,7 @@
   - Rating-based supplier preference.
   - Infeasible orders.
 - Include at least one integration-style test for `POST /api/route`.
-- Use `docs/sample_orders.json` as smoke-test input where appropriate.
+- Use `test_data/sample_orders.json` as smoke-test input where appropriate.
 - Keep tests deterministic and independent of execution order.
 
 ## 12. Verification Instructions

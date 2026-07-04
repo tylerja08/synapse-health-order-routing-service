@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Build a production-minded, containerized C# order routing service that runs locally and in Docker without external services. The first implementation phase will deliver the service behavior described in `prompts/requirements.md`, backed by product and supplier data in `docs/`.
+Build a production-minded, containerized C# order routing service that runs locally and in Docker without external services. The first implementation phase will deliver the service behavior described in `prompts/requirements.md`, backed by product and supplier data in `service_data/`.
 
 The service exposes:
 
@@ -17,7 +17,7 @@ All business validation and routing failures return HTTP 200 with `feasible: fal
 - Language: C#.
 - CSV parsing: CsvHelper, configured for RFC-style CSV handling, quoted fields, trimming, and clear parse errors.
 - JSON: built-in `System.Text.Json` with snake_case request and response names.
-- Tests: xUnit plus ASP.NET Core `WebApplicationFactory` for integration-style API tests.
+- Tests: no-dependency console test runner with focused assertions and an integration-style smoke test that starts the local API and calls `POST /api/route`.
 - Container: multi-stage Dockerfile using .NET SDK for build and ASP.NET runtime for execution.
 
 The service will not require databases, queues, caches, or networked dependencies.
@@ -54,9 +54,10 @@ tests/
     SupplierEligibilityTests.cs
     OrderRouterTests.cs
     RouteApiTests.cs
-docs/
+service_data/
   products.csv
   suppliers.csv
+test_data/
   sample_orders.json
 Dockerfile
 .dockerignore
@@ -73,8 +74,8 @@ Configuration values:
 | Name | Default | Purpose |
 | --- | --- | --- |
 | `PORT` | `8080` | HTTP listen port. |
-| `DATA__PRODUCTS_PATH` | `docs/products.csv` | Product CSV path when running from repo root. |
-| `DATA__SUPPLIERS_PATH` | `docs/suppliers.csv` | Supplier CSV path when running from repo root. |
+| `DATA__PRODUCTS_PATH` | `service_data/products.csv` | Product CSV path when running from repo root. |
+| `DATA__SUPPLIERS_PATH` | `service_data/suppliers.csv` | Supplier CSV path when running from repo root. |
 | `ROUTING__LOCAL_RATING_SIMILARITY_DELTA` | `0.5` | Rating difference within which local fulfillment wins over mail order. |
 | `ROUTING__MAX_QUEUED_REQUESTS` | `100` | Maximum in-process route requests waiting for priority scheduling. |
 
@@ -84,7 +85,7 @@ At startup the app loads and normalizes all product and supplier data. Missing o
 
 ### Products
 
-`docs/products.csv` fields:
+`service_data/products.csv` fields:
 
 - `product_code`
 - `product_name`
@@ -99,7 +100,7 @@ Normalization:
 
 ### Suppliers
 
-`docs/suppliers.csv` fields:
+`service_data/suppliers.csv` fields:
 
 - `supplier_id`
 - `suplier_name`, intentionally misspelled in source data. The loader will support this header and optionally `supplier_name` for resilience.
@@ -138,7 +139,7 @@ Malformed required fields, invalid ranges, invalid ratings, or invalid mail-orde
 }
 ```
 
-`priority` is part of the request contract. Extra JSON fields, such as `notes` from `docs/sample_orders.json`, are ignored.
+`priority` is part of the request contract. Extra JSON fields, such as `notes` from `test_data/sample_orders.json`, are ignored.
 
 Supported priorities:
 
@@ -346,7 +347,7 @@ Dockerfile:
 - Stage 1: build with `mcr.microsoft.com/dotnet/sdk:8.0`.
 - Stage 2: run with `mcr.microsoft.com/dotnet/aspnet:8.0`.
 - Copy published output.
-- Copy `docs/products.csv` and `docs/suppliers.csv`.
+- Copy `service_data/products.csv` and `service_data/suppliers.csv`.
 - Set `ASPNETCORE_URLS=http://+:8080`.
 - Set default data paths inside the image.
 - Expose `8080`.
@@ -399,7 +400,7 @@ Focused automated tests:
   - Returns a clear capacity error when the in-process queue is full.
 - Integration:
   - `POST /api/route` against in-memory test host returns the documented shape.
-  - At least one smoke test uses an order from `docs/sample_orders.json`.
+  - At least one smoke test uses an order from `test_data/sample_orders.json`.
 
 ## README Updates
 

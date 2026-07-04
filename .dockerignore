@@ -1,0 +1,15 @@
+.git
+.agents
+.codex
+**/bin
+**/obj
+**/TestResults
+.vs
+.vscode
+*.user
+*.suo
+*.log
+Dockerfile
+README.md
+AI_PROMPTS.md
+prompts
