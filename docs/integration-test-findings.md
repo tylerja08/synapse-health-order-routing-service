@@ -7,13 +7,13 @@ Capture integration-test coverage added for the order routing API contract and d
 ## Command
 
 ```powershell
-dotnet test OrderRouting.sln --no-build
+dotnet test tests\OrderRouting.IntegrationTests\OrderRouting.IntegrationTests.csproj --no-build
 ```
 
 ## Current Result
 
-- Total tests: 24
-- Passing tests: 24
+- Total integration tests: 4
+- Passing integration tests: 4
 - Failing tests: 0
 
 ## Integration Coverage Added
@@ -29,7 +29,7 @@ The API smoke test now starts the service locally with an ephemeral port and ver
 - Unknown product codes return HTTP 200 with `feasible:false`.
 - Unknown priority values return HTTP 200 with `feasible:false` and list `rush` and `standard`.
 - `mail_order:false` uses local fulfillment where required.
-- `mail_order:true` can select mail-order fulfillment when the routing score supports it.
+- `mail_order:true` is accepted and can still route feasibly when mail-order fulfillment is allowed.
 - Oversized request bodies return HTTP 413.
 - Missing startup product data causes the API process to fail startup with a non-zero exit.
 - Missing startup supplier data causes the API process to fail startup with a non-zero exit.
@@ -58,7 +58,7 @@ The suite now also includes focused tests for:
 - The startup-failure test confirms missing product data fails fast before serving traffic.
 - The startup-failure coverage now also confirms missing supplier data and malformed supplier ratings fail fast before serving traffic.
 - The request body limit is now asserted as part of the API contract with HTTP 413 for oversized JSON payloads.
-- The suite now uses xUnit with the .NET test SDK and Visual Studio test adapter, so tests are discoverable from `dotnet test`, VS Code, and Visual Studio Test Explorer.
+- The suite now uses separate xUnit projects: `OrderRouting.UnitTests` for fast CI feedback and `OrderRouting.IntegrationTests` for API/process checks in a CD or gated rollout stage.
 
 ## Suggested Future Additions
 

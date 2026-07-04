@@ -9,11 +9,13 @@
 
 ## Method
 
-The stress test runner lives in `tests/OrderRouting.Tests` and can be run with:
+Historical command before the test project split:
 
 ```powershell
 dotnet run --project tests\OrderRouting.Tests\OrderRouting.Tests.csproj -- --stress --orders test_data\performance_orders.json --concurrency 25
 ```
+
+After the unit/integration split, reintroduce this as a dedicated load-test tool or pipeline job before treating it as an active rollout gate.
 
 The runner starts the API locally, waits for `/health`, sends the orders to `POST /api/route` with the requested concurrency, and reports HTTP status counts, feasibility counts, throughput, and latency percentiles.
 

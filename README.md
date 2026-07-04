@@ -71,33 +71,22 @@ Business validation and routing failures return HTTP 200 with `feasible: false`.
 
 ## Tests
 
-The test project uses xUnit and can be run from Visual Studio, VS Code, or the .NET CLI:
+The test suite is split into unit and integration projects so fast unit tests can run in CI while API/process integration tests can run in a CD or gated rollout stage.
 
 ```powershell
-dotnet test OrderRouting.sln
+dotnet test tests\OrderRouting.UnitTests\OrderRouting.UnitTests.csproj
+dotnet test tests\OrderRouting.IntegrationTests\OrderRouting.IntegrationTests.csproj
 ```
 
-It covers validation, product lookup, ZIP parsing, supplier eligibility, routing decisions, priority scheduling, and an HTTP smoke test for `POST /api/route`.
+Unit tests cover validation, product lookup, ZIP parsing, supplier eligibility, routing decisions, and priority scheduling. Integration tests start the API locally and cover startup failures, OpenAPI/Swagger, request validation, body limits, and a `POST /api/route` smoke test.
 
 ## Stress Test
 
-Run the reusable stress test against the generated 500-order data set:
-
-```powershell
-dotnet run --project tests\OrderRouting.Tests\OrderRouting.Tests.csproj -- --stress --orders test_data\performance_orders.json --concurrency 25
-```
-
-The runner starts the API locally, sends requests concurrently, and prints latency/throughput metrics. Current findings are documented in `docs/performance-findings.md`.
+Historical stress-test findings are documented in `docs/performance-findings.md`. For a production rollout, the stress runner should live in a dedicated load-test tool or pipeline job separate from the unit and integration test projects.
 
 ## Data Audit
 
-Run the exhaustive data audit:
-
-```powershell
-dotnet run --project tests\OrderRouting.Tests\OrderRouting.Tests.csproj -- --data-audit
-```
-
-The audit loads all service data, checks product/supplier category coverage, routes every unique product, validates every supplier against at least one known product/category/local ZIP, reports per-category coverage counts, and samples local coverage across major ZIP regions. Current findings are documented in `docs/data-audit-findings.md`.
+Historical data-audit findings are documented in `docs/data-audit-findings.md`. For a production rollout, the data audit should live in a dedicated operational validation tool or pipeline job separate from the unit and integration test projects.
 
 ## Docker
 
