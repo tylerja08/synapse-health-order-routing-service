@@ -1,4 +1,6 @@
-using System.Text;
+using System.Globalization;
+using CsvHelper;
+using CsvHelper.Configuration;
 
 namespace OrderRouting.Api.Data;
 
@@ -58,6 +60,15 @@ public sealed class CsvRow
 
 public static class CsvTableReader
 {
+    private static readonly CsvConfiguration Configuration = new(CultureInfo.InvariantCulture)
+    {
+        HasHeaderRecord = false,
+        IgnoreBlankLines = true,
+        TrimOptions = TrimOptions.None,
+        BadDataFound = args => throw new DataLoadException($"CSV input contains malformed data near row {args.Context?.Parser?.Row ?? 0}."),
+        MissingFieldFound = null
+    };
+
     public static CsvTable Read(string path)
     {
         var rows = ReadRows(path).ToArray();
@@ -160,160 +171,35 @@ public static class CsvTableReader
         return headers;
     }
 
+    public static IReadOnlyList<IReadOnlyList<string>> Parse(string text)
+    {
+        using var reader = new StringReader(text);
+        return EnumerateRecords(reader).ToArray();
+    }
+
     private static IEnumerable<IReadOnlyList<string>> EnumerateRecords(TextReader reader)
     {
-        var row = new List<string>();
-        var field = new StringBuilder();
-        var inQuotes = false;
-        var fieldStartedWithQuote = false;
+        using var csv = new CsvReader(reader, Configuration);
 
-        while (reader.Read() is var current && current != -1)
+        while (Read(csv))
         {
-            var ch = (char)current;
-            if (inQuotes)
-            {
-                if (ch == '"')
-                {
-                    if (reader.Peek() == '"')
-                    {
-                        field.Append('"');
-                        reader.Read();
-                    }
-                    else
-                    {
-                        inQuotes = false;
-                    }
-                }
-                else
-                {
-                    field.Append(ch);
-                }
-
-                continue;
-            }
-
-            if (ch == '"' && field.Length == 0 && !fieldStartedWithQuote)
-            {
-                inQuotes = true;
-                fieldStartedWithQuote = true;
-                continue;
-            }
-
-            if (ch == ',')
-            {
-                row.Add(field.ToString());
-                field.Clear();
-                fieldStartedWithQuote = false;
-                continue;
-            }
-
-            if (ch == '\r' || ch == '\n')
-            {
-                if (ch == '\r' && reader.Peek() == '\n')
-                {
-                    reader.Read();
-                }
-
-                row.Add(field.ToString());
-                yield return row;
-                row = new List<string>();
-                field.Clear();
-                fieldStartedWithQuote = false;
-                continue;
-            }
-
-            field.Append(ch);
-        }
-
-        if (inQuotes)
-        {
-            throw new DataLoadException("CSV input ended inside a quoted field.");
-        }
-
-        if (field.Length > 0 || fieldStartedWithQuote || row.Count > 0)
-        {
-            row.Add(field.ToString());
-            yield return row;
+            yield return (csv.Parser.Record ?? []).ToArray();
         }
     }
 
-    public static IReadOnlyList<IReadOnlyList<string>> Parse(string text)
+    private static bool Read(CsvReader csv)
     {
-        var rows = new List<IReadOnlyList<string>>();
-        var row = new List<string>();
-        var field = new StringBuilder();
-        var inQuotes = false;
-        var fieldStartedWithQuote = false;
-
-        for (var i = 0; i < text.Length; i++)
+        try
         {
-            var ch = text[i];
-            if (inQuotes)
-            {
-                if (ch == '"')
-                {
-                    if (i + 1 < text.Length && text[i + 1] == '"')
-                    {
-                        field.Append('"');
-                        i++;
-                    }
-                    else
-                    {
-                        inQuotes = false;
-                    }
-                }
-                else
-                {
-                    field.Append(ch);
-                }
-
-                continue;
-            }
-
-            if (ch == '"' && field.Length == 0 && !fieldStartedWithQuote)
-            {
-                inQuotes = true;
-                fieldStartedWithQuote = true;
-                continue;
-            }
-
-            if (ch == ',')
-            {
-                row.Add(field.ToString());
-                field.Clear();
-                fieldStartedWithQuote = false;
-                continue;
-            }
-
-            if (ch == '\r' || ch == '\n')
-            {
-                if (ch == '\r' && i + 1 < text.Length && text[i + 1] == '\n')
-                {
-                    i++;
-                }
-
-                row.Add(field.ToString());
-                rows.Add(row);
-                row = new List<string>();
-                field.Clear();
-                fieldStartedWithQuote = false;
-                continue;
-            }
-
-            field.Append(ch);
+            return csv.Read();
         }
-
-        if (inQuotes)
+        catch (DataLoadException)
         {
-            throw new DataLoadException("CSV input ended inside a quoted field.");
+            throw;
         }
-
-        if (field.Length > 0 || fieldStartedWithQuote || row.Count > 0)
+        catch (CsvHelperException exception)
         {
-            row.Add(field.ToString());
-            rows.Add(row);
+            throw new DataLoadException($"CSV input could not be parsed near row {csv.Context?.Parser?.Row ?? 0}.", exception);
         }
-
-        return rows;
     }
 }

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
@@ -24,17 +25,26 @@ var tests = new (string Name, Func<Task> Run)[]
     ("request validation returns multiple errors", RequestValidationReturnsMultipleErrors),
     ("invalid priority lists allowed values", InvalidPriorityListsAllowedValues),
     ("product lookup is case-insensitive and normalizes category", ProductLookupIsCaseInsensitive),
+    ("duplicate product rows are handled correctly", DuplicateProductRowsAreHandledCorrectly),
+    ("csv parser handles quoted fields and line endings", CsvParserHandlesQuotedFieldsAndLineEndings),
+    ("csv parser rejects unterminated quotes", CsvParserRejectsUnterminatedQuotes),
+    ("csv loaders reject malformed data", CsvLoadersRejectMalformedData),
     ("zip coverage parses exact values and ranges", ZipCoverageParsesValuesAndRanges),
     ("zip coverage left-pads short source zips", ZipCoverageLeftPadsShortZips),
     ("supplier eligibility handles local and mail order", SupplierEligibilityHandlesModes),
     ("router consolidates shipments", RouterConsolidatesShipments),
     ("router prefers higher rating at same shipment count", RouterPrefersHigherRating),
+    ("router uses quantity weighted rating", RouterUsesQuantityWeightedRating),
     ("router prefers local when ratings are similar", RouterPrefersLocalWhenRatingsAreSimilar),
     ("router uses supplier id tiebreak", RouterUsesSupplierIdTiebreak),
+    ("router response order is deterministic", RouterResponseOrderIsDeterministic),
     ("router reports infeasible orders", RouterReportsInfeasibleOrders),
     ("scheduler processes rush before waiting standard", SchedulerProcessesRushFirst),
     ("scheduler preserves fifo within priority", SchedulerPreservesFifo),
     ("scheduler reports capacity", SchedulerReportsCapacity),
+    ("api startup fails when data file is missing", ApiStartupFailsWhenDataFileIsMissing),
+    ("api startup fails when supplier data file is missing", ApiStartupFailsWhenSupplierDataFileIsMissing),
+    ("api startup fails when supplier data is malformed", ApiStartupFailsWhenSupplierDataIsMalformed),
     ("api post route smoke test", ApiPostRouteSmokeTest)
 };
 
@@ -88,6 +98,55 @@ static Task ProductLookupIsCaseInsensitive()
     var product = repository.Find("cp-std-031");
     AssertNotNull(product);
     AssertEqual("cpap", product!.Category);
+    return Task.CompletedTask;
+}
+
+static Task DuplicateProductRowsAreHandledCorrectly()
+{
+    var duplicatePath = TempFile("products", "product_code,product_name,category\r\nP1,Product 1,CPAP\r\nP1,Product 1,CPAP");
+    var repository = CsvProductRepository.Load(duplicatePath, LoggerFactory.Create(_ => { }).CreateLogger("test"));
+    AssertEqual(1, repository.Count);
+
+    var conflictingPath = TempFile("products", "product_code,product_name,category\r\nP1,Product 1,CPAP\r\nP1,Product 1,wheelchair");
+    AssertThrows<DataLoadException>(() => CsvProductRepository.Load(conflictingPath, LoggerFactory.Create(_ => { }).CreateLogger("test")));
+    return Task.CompletedTask;
+}
+
+static Task CsvParserHandlesQuotedFieldsAndLineEndings()
+{
+    var records = CsvTableReader.Parse("a,b,c\r\n\"one, two\",\"say \"\"hi\"\"\",three\nlast,,");
+    AssertEqual(3, records.Count);
+    AssertEqual("one, two", records[1][0]);
+    AssertEqual("say \"hi\"", records[1][1]);
+    AssertEqual("", records[2][1]);
+    AssertEqual("", records[2][2]);
+    return Task.CompletedTask;
+}
+
+static Task CsvParserRejectsUnterminatedQuotes()
+{
+    AssertThrows<DataLoadException>(() => CsvTableReader.Parse("a,b\r\n\"unterminated,b"));
+    return Task.CompletedTask;
+}
+
+static Task CsvLoadersRejectMalformedData()
+{
+    AssertThrows<DataLoadException>(() => CsvProductRepository.Load(
+        TempFile("products", "product_code,product_name\r\nP1,Product 1"),
+        LoggerFactory.Create(_ => { }).CreateLogger("test")));
+
+    AssertThrows<DataLoadException>(() => CsvSupplierRepository.Load(
+        TempFile("suppliers", "supplier_id,suplier_name,service_zips,product_categories,customer_satisfaction_score,can_mail_order?\r\nSUP-1,Supplier,10001,wheelchair,invalid,y")));
+
+    AssertThrows<DataLoadException>(() => CsvSupplierRepository.Load(
+        TempFile("suppliers", "supplier_id,suplier_name,service_zips,product_categories,customer_satisfaction_score,can_mail_order?\r\nSUP-1,Supplier,10001,wheelchair,8,maybe")));
+
+    AssertThrows<DataLoadException>(() => CsvSupplierRepository.Load(
+        TempFile("suppliers", "supplier_id,suplier_name,service_zips,product_categories,customer_satisfaction_score,can_mail_order?\r\nSUP-1,Supplier,10005-10001,wheelchair,8,y")));
+
+    AssertThrows<DataLoadException>(() => CsvSupplierRepository.Load(
+        TempFile("suppliers", "supplier_id,service_zips,product_categories,customer_satisfaction_score,can_mail_order?\r\nSUP-1,10001,wheelchair,8,y")));
+
     return Task.CompletedTask;
 }
 
@@ -146,6 +205,24 @@ static Task RouterPrefersHigherRating()
     return Task.CompletedTask;
 }
 
+static Task RouterUsesQuantityWeightedRating()
+{
+    var products = ProductRepository(("A", "Product A", "category-a"), ("B", "Product B", "category-b"));
+    var suppliers = SupplierRepository(
+        Supplier("SUP-A-HIGH", "A High", "10001", "category-a", 10m, false),
+        Supplier("SUP-A-LOW", "A Low", "10001", "category-a", 1m, false),
+        Supplier("SUP-B-HIGH", "B High", "10001", "category-b", 10m, false),
+        Supplier("SUP-B-LOW", "B Low", "10001", "category-b", 1m, false));
+
+    var response = Route(products, suppliers, new("ORD", "10001", false, "standard", [new("A", 1), new("B", 10)]));
+
+    AssertTrue(response.Feasible);
+    AssertEqual(2, response.Routing!.Count);
+    AssertTrue(response.Routing.Any(group => group.SupplierId == "SUP-A-HIGH"));
+    AssertTrue(response.Routing.Any(group => group.SupplierId == "SUP-B-HIGH"));
+    return Task.CompletedTask;
+}
+
 static Task RouterPrefersLocalWhenRatingsAreSimilar()
 {
     var products = ProductRepository(("WC", "Wheelchair", "wheelchair"));
@@ -169,6 +246,21 @@ static Task RouterUsesSupplierIdTiebreak()
     return Task.CompletedTask;
 }
 
+static Task RouterResponseOrderIsDeterministic()
+{
+    var products = ProductRepository(("A", "Product A", "category-a"), ("B", "Product B", "category-b"), ("C", "Product C", "category-a"));
+    var suppliers = SupplierRepository(
+        Supplier("SUP-B", "B", "10001", "category-b", 10m, false),
+        Supplier("SUP-A", "A", "10001", "category-a", 10m, false));
+    var response = Route(products, suppliers, new("ORD", "10001", false, "standard", [new("C", 1), new("B", 1), new("A", 1)]));
+
+    AssertTrue(response.Feasible);
+    AssertEqual("SUP-A", response.Routing![0].SupplierId);
+    AssertEqual("SUP-B", response.Routing[1].SupplierId);
+    AssertSequence(["C", "A"], response.Routing[0].Items.Select(item => item.ProductCode).ToArray());
+    return Task.CompletedTask;
+}
+
 static Task RouterReportsInfeasibleOrders()
 {
     var products = ProductRepository(("WC", "Wheelchair", "wheelchair"));
@@ -182,14 +274,18 @@ static Task RouterReportsInfeasibleOrders()
 static async Task SchedulerProcessesRushFirst()
 {
     using var scheduler = new RouteRequestScheduler(Config(("Routing:MaxQueuedRequests", "10")));
+    var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
     var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
     var completed = new List<string>();
     var first = scheduler.EnqueueAsync(OrderPriority.Standard, async _ =>
     {
+        firstStarted.SetResult();
         await gate.Task;
         completed.Add("first");
         return RouteOrderResponse.Failure(["first"]);
     }, CancellationToken.None);
+
+    await firstStarted.Task;
 
     var standard = scheduler.EnqueueAsync(OrderPriority.Standard, _ =>
     {
@@ -205,7 +301,7 @@ static async Task SchedulerProcessesRushFirst()
 
     gate.SetResult();
     await Task.WhenAll(first, standard, rush);
-    AssertSequence(["rush", "first", "standard"], completed);
+    AssertSequence(["first", "rush", "standard"], completed);
 }
 
 static async Task SchedulerPreservesFifo()
@@ -237,9 +333,9 @@ static async Task SchedulerReportsCapacity()
 static async Task ApiPostRouteSmokeTest()
 {
     var root = FindRepoRoot();
-    var port = 18080;
+    var port = GetFreePort();
     using var process = new Process();
-    process.StartInfo = new ProcessStartInfo("dotnet", $"run --no-build --project \"{Path.Combine(root, "src", "OrderRouting.Api", "OrderRouting.Api.csproj")}\"")
+    process.StartInfo = new ProcessStartInfo("dotnet", $"run --no-build --no-launch-profile --project \"{Path.Combine(root, "src", "OrderRouting.Api", "OrderRouting.Api.csproj")}\"")
     {
         WorkingDirectory = root,
         UseShellExecute = false,
@@ -268,6 +364,13 @@ static async Task ApiPostRouteSmokeTest()
         AssertNotNull(route);
         AssertTrue(route!.Feasible);
         AssertTrue(route.Routing!.Count > 0);
+
+        await VerifyApiMalformedJson(client);
+        await VerifyApiBusinessValidation(client);
+        await VerifyApiUnknownProduct(client);
+        await VerifyApiInvalidPriority(client);
+        await VerifyApiMailOrderModes(client);
+        await VerifyApiRejectsOversizedBody(client);
     }
     finally
     {
@@ -276,6 +379,212 @@ static async Task ApiPostRouteSmokeTest()
             process.Kill(entireProcessTree: true);
         }
     }
+}
+
+static Task ApiStartupFailsWhenDataFileIsMissing()
+{
+    var root = FindRepoRoot();
+    var output = RunApiExpectingStartupFailure(
+        productsPath: Path.Combine(root, "service_data", "missing-products.csv"),
+        suppliersPath: Path.Combine(root, "service_data", "suppliers.csv"));
+
+    if (!output.Contains("missing-products.csv", StringComparison.OrdinalIgnoreCase) &&
+        !output.Contains("Failed to load startup data", StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException("Expected startup output to mention missing product data file.");
+    }
+
+    return Task.CompletedTask;
+}
+
+static Task ApiStartupFailsWhenSupplierDataFileIsMissing()
+{
+    var root = FindRepoRoot();
+    var output = RunApiExpectingStartupFailure(
+        productsPath: Path.Combine(root, "service_data", "products.csv"),
+        suppliersPath: Path.Combine(root, "service_data", "missing-suppliers.csv"));
+
+    if (!output.Contains("missing-suppliers.csv", StringComparison.OrdinalIgnoreCase) &&
+        !output.Contains("Failed to load startup data", StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException("Expected startup output to mention missing supplier data file.");
+    }
+
+    return Task.CompletedTask;
+}
+
+static Task ApiStartupFailsWhenSupplierDataIsMalformed()
+{
+    var root = FindRepoRoot();
+    var malformedSupplierPath = TempFile(
+        "malformed-suppliers",
+        "supplier_id,suplier_name,service_zips,product_categories,customer_satisfaction_score,can_mail_order?\r\nSUP-BAD,Bad Supplier,10001,wheelchair,not-a-rating,y");
+
+    var output = RunApiExpectingStartupFailure(
+        productsPath: Path.Combine(root, "service_data", "products.csv"),
+        suppliersPath: malformedSupplierPath);
+
+    if (!output.Contains("invalid customer_satisfaction_score", StringComparison.OrdinalIgnoreCase) &&
+        !output.Contains("Failed to load startup data", StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException("Expected startup output to mention malformed supplier rating.");
+    }
+
+    return Task.CompletedTask;
+}
+
+static string RunApiExpectingStartupFailure(string productsPath, string suppliersPath)
+{
+    var root = FindRepoRoot();
+    var output = new StringBuilder();
+    using var process = new Process();
+    process.StartInfo = new ProcessStartInfo("dotnet", $"run --no-build --no-launch-profile --project \"{Path.Combine(root, "src", "OrderRouting.Api", "OrderRouting.Api.csproj")}\"")
+    {
+        WorkingDirectory = root,
+        UseShellExecute = false,
+        RedirectStandardOutput = true,
+        RedirectStandardError = true
+    };
+    process.StartInfo.Environment["PORT"] = GetFreePort().ToString();
+    process.StartInfo.Environment["Data__ProductsPath"] = productsPath;
+    process.StartInfo.Environment["Data__SuppliersPath"] = suppliersPath;
+    process.OutputDataReceived += (_, args) =>
+    {
+        if (args.Data is not null)
+        {
+            output.AppendLine(args.Data);
+        }
+    };
+    process.ErrorDataReceived += (_, args) =>
+    {
+        if (args.Data is not null)
+        {
+            output.AppendLine(args.Data);
+        }
+    };
+    process.Start();
+    process.BeginOutputReadLine();
+    process.BeginErrorReadLine();
+
+    if (!process.WaitForExit(20_000))
+    {
+        process.Kill(entireProcessTree: true);
+        throw new TimeoutException("API did not exit after missing startup data.");
+    }
+
+    process.WaitForExit();
+    if (process.ExitCode == 0)
+    {
+        throw new InvalidOperationException("Expected non-zero exit code when startup data is invalid.");
+    }
+
+    return output.ToString();
+}
+
+static async Task VerifyApiMalformedJson(HttpClient client)
+{
+    using var response = await client.PostAsync("/api/route", new StringContent("{ invalid json", Encoding.UTF8, "application/json"));
+    AssertEqual(HttpStatusCode.BadRequest, response.StatusCode);
+}
+
+static async Task VerifyApiBusinessValidation(HttpClient client)
+{
+    var route = await PostRoute(client, new
+    {
+        order_id = "BAD-SHAPE",
+        customer_zip = "abc",
+        mail_order = false,
+        items = Array.Empty<object>()
+    });
+
+    AssertFalse(route.Feasible);
+    AssertContains("Order must include a valid customer_zip.", route.Errors!);
+    AssertContains("Order must include at least one line item.", route.Errors!);
+}
+
+static async Task VerifyApiUnknownProduct(HttpClient client)
+{
+    var route = await PostRoute(client, new
+    {
+        order_id = "UNKNOWN-PRODUCT",
+        customer_zip = "10015",
+        mail_order = false,
+        priority = "standard",
+        items = new[] { new { product_code = "NO-SUCH-PRODUCT", quantity = 1 } }
+    });
+
+    AssertFalse(route.Feasible);
+    AssertContains("Unknown product_code 'NO-SUCH-PRODUCT' in line item 1.", route.Errors!);
+}
+
+static async Task VerifyApiInvalidPriority(HttpClient client)
+{
+    var route = await PostRoute(client, new
+    {
+        order_id = "BAD-PRIORITY",
+        customer_zip = "10015",
+        mail_order = false,
+        priority = "urgent",
+        items = new[] { new { product_code = "WC-STD-001", quantity = 1 } }
+    });
+
+    AssertFalse(route.Feasible);
+    AssertContains("priority must be one of: rush, standard.", route.Errors!);
+}
+
+static async Task VerifyApiMailOrderModes(HttpClient client)
+{
+    var localOnly = await PostRoute(client, new
+    {
+        order_id = "LOCAL-ONLY",
+        customer_zip = "00001",
+        mail_order = false,
+        priority = "standard",
+        items = new[] { new { product_code = "WC-SENT-001", quantity = 1 } }
+    });
+
+    AssertTrue(localOnly.Feasible);
+    AssertEqual("SUP-T001", localOnly.Routing![0].SupplierId);
+    AssertEqual("local", localOnly.Routing[0].Items[0].FulfillmentMode);
+
+    var mailAllowed = await PostRoute(client, new
+    {
+        order_id = "MAIL-ALLOWED",
+        customer_zip = "00001",
+        mail_order = true,
+        priority = "standard",
+        items = new[] { new { product_code = "WC-SENT-001", quantity = 1 } }
+    });
+
+    AssertTrue(mailAllowed.Feasible);
+    AssertEqual("mail_order", mailAllowed.Routing![0].Items[0].FulfillmentMode);
+}
+
+static async Task VerifyApiRejectsOversizedBody(HttpClient client)
+{
+    var request = new
+    {
+        order_id = "OVERSIZED",
+        customer_zip = "10015",
+        mail_order = false,
+        priority = "standard",
+        notes = new string('x', 1_100_000),
+        items = new[] { new { product_code = "WC-STD-001", quantity = 1 } }
+    };
+
+    using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+    using var response = await client.PostAsync("/api/route", content);
+    AssertEqual(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+}
+
+static async Task<RouteOrderResponse> PostRoute(HttpClient client, object request)
+{
+    using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+    using var response = await client.PostAsync("/api/route", content);
+    AssertEqual(HttpStatusCode.OK, response.StatusCode);
+    var route = await response.Content.ReadFromJsonAsync<RouteOrderResponse>();
+    AssertNotNull(route);
+    return route!;
 }
 
 static async Task<int> RunStressTest(string[] args)
@@ -296,7 +605,7 @@ static async Task<int> RunStressTest(string[] args)
     }
 
     using var process = new Process();
-    process.StartInfo = new ProcessStartInfo("dotnet", $"run --no-build --project \"{Path.Combine(root, "src", "OrderRouting.Api", "OrderRouting.Api.csproj")}\"")
+    process.StartInfo = new ProcessStartInfo("dotnet", $"run --no-build --no-launch-profile --project \"{Path.Combine(root, "src", "OrderRouting.Api", "OrderRouting.Api.csproj")}\"")
     {
         WorkingDirectory = root,
         UseShellExecute = false,
@@ -618,7 +927,40 @@ static async Task VerifyApiDocs(HttpClient client)
     using var openApi = await client.GetAsync("/openapi.json");
     AssertEqual(System.Net.HttpStatusCode.OK, openApi.StatusCode);
     using var document = JsonDocument.Parse(await openApi.Content.ReadAsStringAsync());
-    AssertEqual("3.0.3", document.RootElement.GetProperty("openapi").GetString());
+    var root = document.RootElement;
+    AssertEqual("3.0.3", root.GetProperty("openapi").GetString());
+
+    var paths = root.GetProperty("paths");
+    AssertTrue(paths.TryGetProperty("/health", out var healthPath));
+    AssertTrue(healthPath.TryGetProperty("get", out _));
+    AssertTrue(paths.TryGetProperty("/api/route", out var routePath));
+    AssertTrue(routePath.TryGetProperty("post", out var routePost));
+
+    var schema = routePost
+        .GetProperty("requestBody")
+        .GetProperty("content")
+        .GetProperty("application/json")
+        .GetProperty("schema");
+    AssertJsonArrayContains(schema.GetProperty("required"), "customer_zip");
+    AssertJsonArrayContains(schema.GetProperty("required"), "mail_order");
+    AssertJsonArrayContains(schema.GetProperty("required"), "items");
+
+    var priority = schema.GetProperty("properties").GetProperty("priority");
+    AssertJsonArrayContains(priority.GetProperty("enum"), "rush");
+    AssertJsonArrayContains(priority.GetProperty("enum"), "standard");
+
+    var items = schema.GetProperty("properties").GetProperty("items").GetProperty("items");
+    AssertJsonArrayContains(items.GetProperty("required"), "product_code");
+    AssertJsonArrayContains(items.GetProperty("required"), "quantity");
+
+    var examples = routePost
+        .GetProperty("responses")
+        .GetProperty("200")
+        .GetProperty("content")
+        .GetProperty("application/json")
+        .GetProperty("examples");
+    AssertTrue(examples.TryGetProperty("success", out _));
+    AssertTrue(examples.TryGetProperty("infeasible", out _));
 }
 
 static async Task WaitForHealth(HttpClient client)
@@ -643,6 +985,13 @@ static async Task WaitForHealth(HttpClient client)
     throw new TimeoutException("API did not become healthy.");
 }
 
+static int GetFreePort()
+{
+    using var listener = new TcpListener(IPAddress.Loopback, 0);
+    listener.Start();
+    return ((IPEndPoint)listener.LocalEndpoint).Port;
+}
+
 static RouteOrderResponse Route(CsvProductRepository products, CsvSupplierRepository suppliers, RouteOrderRequest request)
 {
     var validation = new OrderValidator(products).Validate(request);
@@ -652,9 +1001,15 @@ static RouteOrderResponse Route(CsvProductRepository products, CsvSupplierReposi
 
 static CsvProductRepository ProductRepository(params (string Code, string Name, string Category)[] products)
 {
-    var path = Path.Combine(Path.GetTempPath(), $"products-{Guid.NewGuid():N}.csv");
-    File.WriteAllText(path, "product_code,product_name,category\r\n" + string.Join("\r\n", products.Select(product => $"{product.Code},{product.Name},{product.Category}")));
+    var path = TempFile("products", "product_code,product_name,category\r\n" + string.Join("\r\n", products.Select(product => $"{product.Code},{product.Name},{product.Category}")));
     return CsvProductRepository.Load(path, LoggerFactory.Create(_ => { }).CreateLogger("test"));
+}
+
+static string TempFile(string prefix, string content)
+{
+    var path = Path.Combine(Path.GetTempPath(), $"{prefix}-{Guid.NewGuid():N}.csv");
+    File.WriteAllText(path, content);
+    return path;
 }
 
 static CsvSupplierRepository SupplierRepository(params Supplier[] suppliers)
@@ -742,12 +1097,44 @@ static void AssertContains(string expected, IReadOnlyList<string> values)
     }
 }
 
+static void AssertJsonArrayContains(JsonElement array, string expected)
+{
+    foreach (var item in array.EnumerateArray())
+    {
+        if (string.Equals(item.GetString(), expected, StringComparison.Ordinal))
+        {
+            return;
+        }
+    }
+
+    throw new InvalidOperationException($"Expected JSON array to contain '{expected}'.");
+}
+
 static void AssertSequence(IReadOnlyList<string> expected, IReadOnlyList<string> actual)
 {
     if (!expected.SequenceEqual(actual))
     {
         throw new InvalidOperationException($"Expected sequence '{string.Join(", ", expected)}', got '{string.Join(", ", actual)}'.");
     }
+}
+
+static void AssertThrows<TException>(Action action)
+    where TException : Exception
+{
+    try
+    {
+        action();
+    }
+    catch (TException)
+    {
+        return;
+    }
+    catch (Exception exception)
+    {
+        throw new InvalidOperationException($"Expected {typeof(TException).Name}, got {exception.GetType().Name}.", exception);
+    }
+
+    throw new InvalidOperationException($"Expected {typeof(TException).Name}, but no exception was thrown.");
 }
 
 internal sealed record StressResult(
