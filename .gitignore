@@ -39,6 +39,7 @@ logs/
 !*.env.example
 appsettings.Development.json
 appsettings.Local.json
+**/Properties/launchSettings.json
 
 # OS files
 Thumbs.db
