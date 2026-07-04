@@ -59,6 +59,8 @@ The API listens on port `8080` by default.
 | `Data__SuppliersPath` | `service_data/suppliers.csv` | Supplier CSV path. |
 | `Routing__LocalRatingSimilarityDelta` | `0.5` | Rating delta where local fulfillment wins over mail order. |
 | `Routing__MaxQueuedRequests` | `100` | Maximum queued route requests. |
+| `Routing__MaxCandidatesPerItem` | `50` | Maximum eligible suppliers considered per line item before routing search. |
+| `Routing__MaxSearchNodes` | `200000` | Exact routing search node budget before deterministic fallback routing is used. |
 
 ## Health Check
 
@@ -143,6 +145,7 @@ Security review findings and production hardening notes are documented in `docs/
 - Unrated suppliers rank after all rated suppliers.
 - Identical duplicate product rows are tolerated; conflicting duplicates fail startup.
 - CSV values that begin with spreadsheet formula prefixes are rejected at startup to reduce CSV/formula injection risk.
+- Routing uses bounded exact search for normal orders and deterministic greedy fallback when the configured search node budget is exceeded.
 
 ## Data Size Notes
 

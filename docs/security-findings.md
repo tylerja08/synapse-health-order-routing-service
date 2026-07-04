@@ -12,6 +12,7 @@ Review the order routing service for practical production hardening, with specia
   - `X-Content-Type-Options: nosniff`
   - `X-Frame-Options: DENY`
   - `Referrer-Policy: no-referrer`
+- Ensured security headers are registered before exception handling so generic error responses receive the same header hardening.
 - Added integration coverage for the security headers.
 - Preserved generic request exception handling so unexpected exceptions are logged server-side and callers receive a generic HTTP 500 problem response.
 - Fixed the Dockerfile restore stage to reference the current unit, integration, and diagnostics projects instead of the removed combined test project.
@@ -33,6 +34,7 @@ Tradeoffs:
 - Add authentication and authorization before exposing route execution outside a trusted internal network.
 - Gate Swagger/OpenAPI UI by environment or authentication. Keeping `/openapi.json` public may be acceptable internally, but the interactive UI should not be broadly exposed by default in production.
 - Add rate limiting and request throttling at the edge. The in-process queue protects routing capacity, but it is not a full abuse-control layer.
+- Tune `Routing__MaxCandidatesPerItem` and `Routing__MaxSearchNodes` under representative production data volumes. The defaults prevent pathological routing searches, but they are still workload-dependent.
 - Terminate TLS at a trusted proxy or configure HTTPS directly for non-container local deployments.
 - Add centralized structured logging, correlation IDs, and log-retention controls. Avoid logging full request bodies because order payloads may become sensitive in a real healthcare workflow.
 - Pin container base images by digest and run image/dependency vulnerability scanning in CI.

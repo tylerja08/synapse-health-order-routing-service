@@ -7,11 +7,15 @@ public sealed class OrderRouter
 {
     private readonly CsvSupplierRepository _suppliers;
     private readonly decimal _localRatingSimilarityDelta;
+    private readonly int _maxCandidatesPerItem;
+    private readonly int _maxSearchNodes;
 
     public OrderRouter(CsvSupplierRepository suppliers, IConfiguration configuration)
     {
         _suppliers = suppliers;
         _localRatingSimilarityDelta = configuration.GetValue("Routing:LocalRatingSimilarityDelta", 0.5m);
+        _maxCandidatesPerItem = Math.Max(1, configuration.GetValue("Routing:MaxCandidatesPerItem", 50));
+        _maxSearchNodes = Math.Max(1, configuration.GetValue("Routing:MaxSearchNodes", 200_000));
     }
 
     public RouteOrderResponse Route(ValidatedOrder order)
@@ -30,6 +34,7 @@ public sealed class OrderRouter
                 .OrderByDescending(candidate => candidate.IsLocal)
                 .ThenByDescending(candidate => RatingValue(candidate.Supplier))
                 .ThenBy(candidate => candidate.Supplier.SupplierId, StringComparer.Ordinal)
+                .Take(_maxCandidatesPerItem)
                 .ToArray();
 
             if (candidates.Length == 0)
@@ -83,12 +88,19 @@ public sealed class OrderRouter
             .ToArray();
 
         RoutingPlan? best = null;
-        Search(0, orderedItems, [], ref best);
-        return best;
+        var searchedNodes = 0;
+        var completed = Search(0, orderedItems, [], ref best, ref searchedNodes);
+        return completed ? best : best ?? FindGreedyPlan(candidateLists);
     }
 
-    private void Search(int depth, IReadOnlyList<ItemCandidates> orderedItems, List<ItemAssignment> assignments, ref RoutingPlan? best)
+    private bool Search(int depth, IReadOnlyList<ItemCandidates> orderedItems, List<ItemAssignment> assignments, ref RoutingPlan? best, ref int searchedNodes)
     {
+        searchedNodes++;
+        if (searchedNodes > _maxSearchNodes)
+        {
+            return false;
+        }
+
         if (depth == orderedItems.Count)
         {
             var plan = new RoutingPlan(assignments.ToArray());
@@ -97,13 +109,13 @@ public sealed class OrderRouter
                 best = plan;
             }
 
-            return;
+            return true;
         }
 
         var usedShipments = assignments.Select(assignment => assignment.Candidate.Supplier.SupplierId).Distinct(StringComparer.Ordinal).Count();
         if (best is not null && usedShipments > best.ShipmentCount)
         {
-            return;
+            return true;
         }
 
         var itemCandidates = orderedItems[depth];
@@ -114,11 +126,66 @@ public sealed class OrderRouter
 
             if (best is null || nextShipments <= best.ShipmentCount)
             {
-                Search(depth + 1, orderedItems, assignments, ref best);
+                if (!Search(depth + 1, orderedItems, assignments, ref best, ref searchedNodes))
+                {
+                    assignments.RemoveAt(assignments.Count - 1);
+                    return false;
+                }
             }
 
             assignments.RemoveAt(assignments.Count - 1);
         }
+
+        return true;
+    }
+
+    private RoutingPlan? FindGreedyPlan(IReadOnlyList<ItemCandidates> candidateLists)
+    {
+        var unassigned = candidateLists.ToDictionary(item => item.Item.RequestIndex);
+        var assignments = new List<ItemAssignment>();
+
+        while (unassigned.Count > 0)
+        {
+            var candidatesBySupplier = unassigned.Values
+                .SelectMany(item => item.Candidates.Select(candidate => new { item.Item, Candidate = candidate }))
+                .GroupBy(value => value.Candidate.Supplier.SupplierId, StringComparer.Ordinal)
+                .Select(group =>
+                {
+                    var bestPerItem = group
+                        .GroupBy(value => value.Item.RequestIndex)
+                        .Select(itemGroup => itemGroup.OrderByDescending(value => value.Candidate.IsLocal).ThenByDescending(value => RatingValue(value.Candidate.Supplier)).First())
+                        .ToArray();
+
+                    return new
+                    {
+                        SupplierId = group.Key,
+                        Assignments = bestPerItem,
+                        CoveredItemCount = bestPerItem.Length,
+                        WeightedRating = WeightedRating(bestPerItem.Select(value => new ItemAssignment(value.Item, value.Candidate))),
+                        LocalItemCount = bestPerItem.Count(value => value.Candidate.IsLocal)
+                    };
+                })
+                .OrderByDescending(group => group.CoveredItemCount)
+                .ThenByDescending(group => group.WeightedRating)
+                .ThenByDescending(group => group.LocalItemCount)
+                .ThenBy(group => group.SupplierId, StringComparer.Ordinal)
+                .FirstOrDefault();
+
+            if (candidatesBySupplier is null || candidatesBySupplier.CoveredItemCount == 0)
+            {
+                return null;
+            }
+
+            foreach (var assignment in candidatesBySupplier.Assignments.OrderBy(value => value.Item.RequestIndex))
+            {
+                if (unassigned.Remove(assignment.Item.RequestIndex))
+                {
+                    assignments.Add(new ItemAssignment(assignment.Item, assignment.Candidate));
+                }
+            }
+        }
+
+        return new RoutingPlan(assignments);
     }
 
     private int ComparePlans(RoutingPlan left, RoutingPlan right)
@@ -148,6 +215,15 @@ public sealed class OrderRouter
     }
 
     private static decimal RatingValue(Supplier supplier) => supplier.CustomerSatisfactionScore ?? 0m;
+
+    private static decimal WeightedRating(IEnumerable<ItemAssignment> assignments)
+    {
+        var materialized = assignments.ToArray();
+        var totalQuantity = materialized.Sum(assignment => assignment.Item.Quantity);
+        return totalQuantity == 0
+            ? 0m
+            : materialized.Sum(assignment => RatingValue(assignment.Candidate.Supplier) * assignment.Item.Quantity) / totalQuantity;
+    }
 }
 
 internal sealed record ItemCandidates(ValidatedOrderItem Item, IReadOnlyList<SupplierCandidate> Candidates);

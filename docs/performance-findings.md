@@ -106,10 +106,12 @@ The overload run is faster because many requests are rejected immediately by the
 - The overload run at concurrency 125 exercised `Routing__MaxQueuedRequests=100`; 394 requests were rejected with `feasible:false` capacity responses. That confirms the service protects itself instead of allowing unbounded queue growth.
 - During the first attempted 500-order run, the stress runner timed out because it redirected API logs without draining stdout/stderr. The runner was fixed to drain child-process logs before collecting final metrics. This was a test harness issue, not an API routing issue.
 - Current routing performance is acceptable for "hundreds of orders" when concurrency remains below the configured queue capacity.
+- Large multi-line orders now use bounded exact routing search and deterministic greedy fallback after `Routing__MaxSearchNodes`; tune `Routing__MaxCandidatesPerItem` and `Routing__MaxSearchNodes` with representative production order shapes.
 
 ## Suggestions
 
 - Keep `Routing__MaxQueuedRequests` documented and tune it for the target environment. The current default of 100 prevents runaway memory/latency, but can reject bursts above that threshold.
+- Keep `Routing__MaxCandidatesPerItem` and `Routing__MaxSearchNodes` documented and tune them with representative product/supplier volumes. Lower values protect latency; higher values preserve more exact-search optimality.
 - Add production telemetry for queue wait time, routing duration, feasible/infeasible counts, and capacity rejections. The logs currently help locally, but structured metrics would make load behavior much easier to monitor.
 - Consider a multi-worker priority scheduler if the service must process sustained traffic above roughly 100 requests/sec on similar hardware. The current scheduler intentionally routes one order at a time, which keeps priority ordering simple but limits CPU parallelism.
 - Consider pre-indexing suppliers by category at startup. Each route currently scans all suppliers for each item. With 1,100 suppliers this is fine for the tested load, but category indexes would reduce per-request work and help future growth.

@@ -239,6 +239,26 @@ public sealed class OrderRoutingUnitTests
     }
 
     [Fact]
+    public Task RouterFallsBackWhenExactSearchBudgetIsExceeded()
+    {
+        var products = ProductRepository(("A", "Product A", "category-a"), ("B", "Product B", "category-b"), ("C", "Product C", "category-c"));
+        var suppliers = SupplierRepository(
+            Supplier("SUP-G", "Generalist", "10001", "category-a, category-b, category-c", 7m, false),
+            Supplier("SUP-A", "A", "10001", "category-a", 10m, false),
+            Supplier("SUP-B", "B", "10001", "category-b", 10m, false),
+            Supplier("SUP-C", "C", "10001", "category-c", 10m, false));
+
+        var validation = new OrderValidator(products).Validate(new("ORD", "10001", false, "standard", [new("A", 1), new("B", 1), new("C", 1)]));
+        AssertTrue(validation.IsValid);
+        var response = new OrderRouter(suppliers, Config(("Routing:MaxSearchNodes", "1"))).Route(validation.Order!);
+
+        AssertTrue(response.Feasible);
+        AssertEqual(1, response.Routing!.Count);
+        AssertEqual("SUP-G", response.Routing[0].SupplierId);
+        return Task.CompletedTask;
+    }
+
+    [Fact]
     public async Task SchedulerProcessesRushFirst()
     {
         using var scheduler = new RouteRequestScheduler(Config(("Routing:MaxQueuedRequests", "10")));

@@ -28,8 +28,19 @@ static async Task<int> RunStressTest(string[] args)
 {
     var root = FindRepoRoot();
     var ordersPath = Path.GetFullPath(GetOption(args, "--orders") ?? Path.Combine(root, "test_data", "performance_orders.json"), root);
-    var concurrency = int.Parse(GetOption(args, "--concurrency") ?? "25");
-    var port = int.Parse(GetOption(args, "--port") ?? "18090");
+    if (!TryGetPositiveInt(args, "--concurrency", 25, out var concurrency, out var error) ||
+        !TryGetPort(args, "--port", 18090, out var port, out error))
+    {
+        Console.Error.WriteLine(error);
+        return 2;
+    }
+
+    if (!File.Exists(ordersPath))
+    {
+        Console.Error.WriteLine($"Orders file '{ordersPath}' does not exist.");
+        return 2;
+    }
+
     var orders = JsonSerializer.Deserialize<List<RouteOrderRequest>>(File.ReadAllText(ordersPath)) ?? [];
     var results = new List<StressResult>();
 
@@ -355,6 +366,42 @@ static string? GetOption(string[] args, string name)
     }
 
     return null;
+}
+
+static bool TryGetPositiveInt(string[] args, string name, int defaultValue, out int value, out string? error)
+{
+    var raw = GetOption(args, name);
+    if (raw is null)
+    {
+        value = defaultValue;
+        error = null;
+        return true;
+    }
+
+    if (int.TryParse(raw, out value) && value > 0)
+    {
+        error = null;
+        return true;
+    }
+
+    error = $"{name} must be a positive integer.";
+    return false;
+}
+
+static bool TryGetPort(string[] args, string name, int defaultValue, out int value, out string? error)
+{
+    if (!TryGetPositiveInt(args, name, defaultValue, out value, out error))
+    {
+        return false;
+    }
+
+    if (value <= 65_535)
+    {
+        return true;
+    }
+
+    error = $"{name} must be between 1 and 65535.";
+    return false;
 }
 
 static double Percentile(IReadOnlyList<double> sortedValues, double percentile)
