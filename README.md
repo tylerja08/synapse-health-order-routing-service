@@ -71,10 +71,10 @@ Business validation and routing failures return HTTP 200 with `feasible: false`.
 
 ## Tests
 
-The test project is a no-dependency console test runner:
+The test project uses xUnit and can be run from Visual Studio, VS Code, or the .NET CLI:
 
 ```powershell
-dotnet run --project tests\OrderRouting.Tests\OrderRouting.Tests.csproj
+dotnet test OrderRouting.sln
 ```
 
 It covers validation, product lookup, ZIP parsing, supplier eligibility, routing decisions, priority scheduling, and an HTTP smoke test for `POST /api/route`.

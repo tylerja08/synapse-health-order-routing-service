@@ -7,7 +7,7 @@ Capture integration-test coverage added for the order routing API contract and d
 ## Command
 
 ```powershell
-dotnet run --project tests\OrderRouting.Tests\OrderRouting.Tests.csproj --no-build
+dotnet test OrderRouting.sln --no-build
 ```
 
 ## Current Result
@@ -58,6 +58,7 @@ The suite now also includes focused tests for:
 - The startup-failure test confirms missing product data fails fast before serving traffic.
 - The startup-failure coverage now also confirms missing supplier data and malformed supplier ratings fail fast before serving traffic.
 - The request body limit is now asserted as part of the API contract with HTTP 413 for oversized JSON payloads.
+- The suite now uses xUnit with the .NET test SDK and Visual Studio test adapter, so tests are discoverable from `dotnet test`, VS Code, and Visual Studio Test Explorer.
 
 ## Suggested Future Additions
 
