@@ -9,13 +9,13 @@
 
 ## Method
 
-Historical command before the test project split:
+The stress test runner lives in `tools/OrderRouting.Diagnostics` and can be run with:
 
 ```powershell
-dotnet run --project tests\OrderRouting.Tests\OrderRouting.Tests.csproj -- --stress --orders test_data\performance_orders.json --concurrency 25
+dotnet run --project tools\OrderRouting.Diagnostics\OrderRouting.Diagnostics.csproj -- stress --orders test_data\performance_orders.json --concurrency 25
 ```
 
-After the unit/integration split, reintroduce this as a dedicated load-test tool or pipeline job before treating it as an active rollout gate.
+The diagnostics project is intentionally separate from unit and integration test projects so load-test execution can be scheduled as an operational or rollout pipeline job.
 
 The runner starts the API locally, waits for `/health`, sends the orders to `POST /api/route` with the requested concurrency, and reports HTTP status counts, feasibility counts, throughput, and latency percentiles.
 
@@ -26,7 +26,7 @@ The runner starts the API locally, waits for `/health`, sends the orders to `POS
 Command:
 
 ```powershell
-dotnet run --project tests\OrderRouting.Tests\OrderRouting.Tests.csproj --no-build -- --stress --orders test_data\performance_orders.json --concurrency 25
+dotnet run --project tools\OrderRouting.Diagnostics\OrderRouting.Diagnostics.csproj --no-build -- stress --orders test_data\performance_orders.json --concurrency 25
 ```
 
 Result:
@@ -51,7 +51,7 @@ Result:
 Command:
 
 ```powershell
-dotnet run --project tests\OrderRouting.Tests\OrderRouting.Tests.csproj --no-build -- --stress --orders test_data\performance_orders.json --concurrency 50
+dotnet run --project tools\OrderRouting.Diagnostics\OrderRouting.Diagnostics.csproj --no-build -- stress --orders test_data\performance_orders.json --concurrency 50
 ```
 
 Result:
@@ -76,7 +76,7 @@ Result:
 Command:
 
 ```powershell
-dotnet run --project tests\OrderRouting.Tests\OrderRouting.Tests.csproj --no-build -- --stress --orders test_data\performance_orders.json --concurrency 125
+dotnet run --project tools\OrderRouting.Diagnostics\OrderRouting.Diagnostics.csproj --no-build -- stress --orders test_data\performance_orders.json --concurrency 125
 ```
 
 Result:

@@ -6,13 +6,13 @@ Validate the majority of `service_data/products.csv` and `service_data/suppliers
 
 ## Method
 
-Historical command before the test project split:
+Command:
 
 ```powershell
-dotnet run --project tests\OrderRouting.Tests\OrderRouting.Tests.csproj --no-build -- --data-audit
+dotnet run --project tools\OrderRouting.Diagnostics\OrderRouting.Diagnostics.csproj --no-build -- data-audit
 ```
 
-After the unit/integration split, reintroduce this as a dedicated operational validation tool or pipeline job before treating it as an active rollout gate.
+The data audit now lives in the dedicated diagnostics project so it can be run as an operational validation or rollout gate without coupling it to unit or integration test discovery.
 
 The audit performs these checks:
 

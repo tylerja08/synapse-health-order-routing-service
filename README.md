@@ -82,11 +82,23 @@ Unit tests cover validation, product lookup, ZIP parsing, supplier eligibility, 
 
 ## Stress Test
 
-Historical stress-test findings are documented in `docs/performance-findings.md`. For a production rollout, the stress runner should live in a dedicated load-test tool or pipeline job separate from the unit and integration test projects.
+Run the reusable stress test against the generated 500-order data set:
+
+```powershell
+dotnet run --project tools\OrderRouting.Diagnostics\OrderRouting.Diagnostics.csproj -- stress --orders test_data\performance_orders.json --concurrency 25
+```
+
+The diagnostics runner starts the API locally, sends requests concurrently, and prints latency/throughput metrics. Current findings are documented in `docs/performance-findings.md`.
 
 ## Data Audit
 
-Historical data-audit findings are documented in `docs/data-audit-findings.md`. For a production rollout, the data audit should live in a dedicated operational validation tool or pipeline job separate from the unit and integration test projects.
+Run the exhaustive data audit:
+
+```powershell
+dotnet run --project tools\OrderRouting.Diagnostics\OrderRouting.Diagnostics.csproj -- data-audit
+```
+
+The audit loads all service data, checks product/supplier category coverage, routes every unique product, validates every supplier against at least one known product/category/local ZIP, reports per-category coverage counts, and samples local coverage across major ZIP regions. Current findings are documented in `docs/data-audit-findings.md`.
 
 ## Docker
 
