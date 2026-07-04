@@ -14,6 +14,11 @@ if (args.Contains("--stress", StringComparer.OrdinalIgnoreCase))
     return await RunStressTest(args);
 }
 
+if (args.Contains("--data-audit", StringComparer.OrdinalIgnoreCase))
+{
+    return RunDataAudit();
+}
+
 var tests = new (string Name, Func<Task> Run)[]
 {
     ("request validation returns multiple errors", RequestValidationReturnsMultipleErrors),
@@ -410,6 +415,172 @@ static async Task<int> RunStressTest(string[] args)
     }
 }
 
+static int RunDataAudit()
+{
+    var root = FindRepoRoot();
+    var productsPath = Path.Combine(root, "service_data", "products.csv");
+    var suppliersPath = Path.Combine(root, "service_data", "suppliers.csv");
+    var logger = LoggerFactory.Create(_ => { }).CreateLogger("audit");
+
+    var productTable = CsvTableReader.Read(productsPath);
+    var supplierTable = CsvTableReader.Read(suppliersPath);
+    var products = CsvProductRepository.Load(productsPath, logger);
+    var suppliers = CsvSupplierRepository.Load(suppliersPath);
+    var router = new OrderRouter(suppliers, Config(("Routing:LocalRatingSimilarityDelta", "0.5")));
+
+    var productsByCategory = products.All
+        .GroupBy(product => product.Category, StringComparer.Ordinal)
+        .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+    var productCategories = productsByCategory.Keys.ToHashSet(StringComparer.Ordinal);
+    var supplierCategories = suppliers.All.SelectMany(supplier => supplier.ProductCategories).ToHashSet(StringComparer.Ordinal);
+
+    var categoriesWithoutSuppliers = productCategories.Except(supplierCategories, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+    var supplierCategoriesWithoutProducts = supplierCategories.Except(productCategories, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+    var categoryCoverage = productCategories
+        .Union(supplierCategories, StringComparer.Ordinal)
+        .Order(StringComparer.Ordinal)
+        .Select(category => new CategoryCoverageSummary(
+            Category: category,
+            ProductCount: productsByCategory.TryGetValue(category, out var categoryProducts) ? categoryProducts.Length : 0,
+            SupplierCount: suppliers.All.Count(supplier => supplier.ProductCategories.Contains(category)),
+            MailOrderSupplierCount: suppliers.All.Count(supplier => supplier.CanMailOrder && supplier.ProductCategories.Contains(category))))
+        .ToArray();
+
+    var productRouteFailures = new List<string>();
+    foreach (var product in products.All.OrderBy(product => product.ProductCode, StringComparer.OrdinalIgnoreCase))
+    {
+        var order = new ValidatedOrder(
+            $"AUDIT-PRODUCT-{product.ProductCode}",
+            "10015",
+            MailOrder: true,
+            OrderPriority.Standard,
+            [new ValidatedOrderItem(0, product.ProductCode, 1, product)]);
+
+        var response = router.Route(order);
+        if (!response.Feasible)
+        {
+            productRouteFailures.Add($"{product.ProductCode} ({product.Category}): {string.Join("; ", response.Errors ?? [])}");
+        }
+    }
+
+    var firstZipBySupplier = supplierTable.Rows.ToDictionary(
+        row => row.Required("supplier_id"),
+        row => FirstZipFromServiceZips(row.Required("service_zips")),
+        StringComparer.Ordinal);
+
+    var supplierValidationFailures = new List<string>();
+    foreach (var supplier in suppliers.All.OrderBy(supplier => supplier.SupplierId, StringComparer.Ordinal))
+    {
+        var knownCategory = supplier.ProductCategories.FirstOrDefault(productCategories.Contains);
+        if (knownCategory is null)
+        {
+            supplierValidationFailures.Add($"{supplier.SupplierId}: no supported product category maps to a product.");
+            continue;
+        }
+
+        if (!productsByCategory.TryGetValue(knownCategory, out var categoryProducts) || categoryProducts.Length == 0)
+        {
+            supplierValidationFailures.Add($"{supplier.SupplierId}: no product exists for category {knownCategory}.");
+            continue;
+        }
+
+        if (!firstZipBySupplier.TryGetValue(supplier.SupplierId, out var firstZip))
+        {
+            supplierValidationFailures.Add($"{supplier.SupplierId}: no service ZIP could be read.");
+            continue;
+        }
+
+        var product = categoryProducts[0];
+        var candidate = SupplierEligibility.GetCandidate(supplier, product, firstZip, mailOrderAllowed: false);
+        if (candidate is null)
+        {
+            supplierValidationFailures.Add($"{supplier.SupplierId}: not locally eligible for category {knownCategory} at its own ZIP {firstZip}.");
+        }
+    }
+
+    var regionalCoverage = BuildRegionalCoverage(productsByCategory, suppliers);
+
+    var summary = new DataAuditSummary(
+        ProductCsvRows: productTable.Rows.Count,
+        UniqueProductsLoaded: products.Count,
+        DuplicateProductRowsIgnored: productTable.Rows.Count - products.Count,
+        ProductCategoryCount: productCategories.Count,
+        SupplierCsvRows: supplierTable.Rows.Count,
+        SuppliersLoaded: suppliers.Count,
+        SupplierCategoryCount: supplierCategories.Count,
+        RatedSupplierCount: suppliers.All.Count(supplier => supplier.CustomerSatisfactionScore is not null),
+        UnratedSupplierCount: suppliers.All.Count(supplier => supplier.CustomerSatisfactionScore is null),
+        MailOrderSupplierCount: suppliers.All.Count(supplier => supplier.CanMailOrder),
+        CategoriesWithoutSuppliers: categoriesWithoutSuppliers,
+        SupplierCategoriesWithoutProducts: supplierCategoriesWithoutProducts,
+        ProductRouteFailureCount: productRouteFailures.Count,
+        SupplierValidationFailureCount: supplierValidationFailures.Count,
+        CategoryCoverage: categoryCoverage,
+        RegionalLocalCoverage: regionalCoverage,
+        SampleProductRouteFailures: productRouteFailures.Take(10).ToArray(),
+        SampleSupplierValidationFailures: supplierValidationFailures.Take(10).ToArray());
+
+    Console.WriteLine(JsonSerializer.Serialize(summary, new JsonSerializerOptions { WriteIndented = true }));
+    return productRouteFailures.Count == 0 && supplierValidationFailures.Count == 0 && categoriesWithoutSuppliers.Length == 0
+        ? 0
+        : 1;
+}
+
+static IReadOnlyList<RegionalCoverageSummary> BuildRegionalCoverage(
+    IReadOnlyDictionary<string, Product[]> productsByCategory,
+    CsvSupplierRepository suppliers)
+{
+    var majorRegions = new (string Name, string Zip)[]
+    {
+        ("New York", "10015"),
+        ("Brooklyn", "11221"),
+        ("Boston", "02130"),
+        ("Chicago", "60610"),
+        ("Houston", "77059"),
+        ("Los Angeles", "90020"),
+        ("Philadelphia", "19131")
+    };
+
+    var summaries = new List<RegionalCoverageSummary>();
+    foreach (var region in majorRegions)
+    {
+        var coveredCategories = 0;
+        var uncovered = new List<string>();
+
+        foreach (var category in productsByCategory.Keys.Order(StringComparer.Ordinal))
+        {
+            var product = productsByCategory[category][0];
+            var covered = suppliers.All.Any(supplier => SupplierEligibility.GetCandidate(supplier, product, region.Zip, mailOrderAllowed: false) is not null);
+            if (covered)
+            {
+                coveredCategories++;
+            }
+            else
+            {
+                uncovered.Add(category);
+            }
+        }
+
+        summaries.Add(new RegionalCoverageSummary(
+            RegionName: region.Name,
+            Zip: region.Zip,
+            CoveredCategoryCount: coveredCategories,
+            TotalCategoryCount: productsByCategory.Count,
+            UncoveredCategories: uncovered));
+    }
+
+    return summaries;
+}
+
+static string FirstZipFromServiceZips(string serviceZips)
+{
+    var token = serviceZips.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[0];
+    var zip = token.Contains('-', StringComparison.Ordinal)
+        ? token.Split('-', StringSplitOptions.TrimEntries)[0]
+        : token;
+    return ZipCoverage.NormalizeZip(zip);
+}
+
 static string? GetOption(string[] args, string name)
 {
     for (var index = 0; index < args.Length - 1; index++)
@@ -602,3 +773,36 @@ internal sealed record StressSummary(
     double P95Ms,
     double P99Ms,
     double MaxMs);
+
+internal sealed record DataAuditSummary(
+    int ProductCsvRows,
+    int UniqueProductsLoaded,
+    int DuplicateProductRowsIgnored,
+    int ProductCategoryCount,
+    int SupplierCsvRows,
+    int SuppliersLoaded,
+    int SupplierCategoryCount,
+    int RatedSupplierCount,
+    int UnratedSupplierCount,
+    int MailOrderSupplierCount,
+    IReadOnlyList<string> CategoriesWithoutSuppliers,
+    IReadOnlyList<string> SupplierCategoriesWithoutProducts,
+    int ProductRouteFailureCount,
+    int SupplierValidationFailureCount,
+    IReadOnlyList<CategoryCoverageSummary> CategoryCoverage,
+    IReadOnlyList<RegionalCoverageSummary> RegionalLocalCoverage,
+    IReadOnlyList<string> SampleProductRouteFailures,
+    IReadOnlyList<string> SampleSupplierValidationFailures);
+
+internal sealed record CategoryCoverageSummary(
+    string Category,
+    int ProductCount,
+    int SupplierCount,
+    int MailOrderSupplierCount);
+
+internal sealed record RegionalCoverageSummary(
+    string RegionName,
+    string Zip,
+    int CoveredCategoryCount,
+    int TotalCategoryCount,
+    IReadOnlyList<string> UncoveredCategories);

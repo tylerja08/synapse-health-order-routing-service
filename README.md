@@ -89,6 +89,16 @@ dotnet run --project tests\OrderRouting.Tests\OrderRouting.Tests.csproj -- --str
 
 The runner starts the API locally, sends requests concurrently, and prints latency/throughput metrics. Current findings are documented in `docs/performance-findings.md`.
 
+## Data Audit
+
+Run the exhaustive data audit:
+
+```powershell
+dotnet run --project tests\OrderRouting.Tests\OrderRouting.Tests.csproj -- --data-audit
+```
+
+The audit loads all service data, checks product/supplier category coverage, routes every unique product, validates every supplier against at least one known product/category/local ZIP, reports per-category coverage counts, and samples local coverage across major ZIP regions. Current findings are documented in `docs/data-audit-findings.md`.
+
 ## Docker
 
 Build the image:

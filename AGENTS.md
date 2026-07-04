@@ -26,6 +26,14 @@ Run the performance stress test:
 dotnet run --project tests\OrderRouting.Tests\OrderRouting.Tests.csproj -- --stress --orders test_data\performance_orders.json --concurrency 25
 ```
 
+Run the exhaustive service-data audit:
+
+```powershell
+dotnet run --project tests\OrderRouting.Tests\OrderRouting.Tests.csproj -- --data-audit
+```
+
+The audit reports product/supplier category coverage, per-category supplier counts, local regional coverage samples, every-product routing results, and every-supplier local eligibility validation.
+
 ## Run The Service
 
 ```powershell

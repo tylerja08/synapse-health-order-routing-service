@@ -14,6 +14,8 @@ public sealed class CsvProductRepository
 
     public int Count => _products.Count;
 
+    public IReadOnlyList<Product> All => _products.Values.ToArray();
+
     public Product? Find(string productCode)
     {
         return _products.TryGetValue(productCode.Trim(), out var product) ? product : null;
