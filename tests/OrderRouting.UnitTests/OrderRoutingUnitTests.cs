@@ -5,6 +5,8 @@ using OrderRouting.Api.Models;
 using OrderRouting.Api.Routing;
 using Xunit;
 
+namespace OrderRouting.UnitTests;
+
 public sealed class OrderRoutingUnitTests
 {
     [Fact]

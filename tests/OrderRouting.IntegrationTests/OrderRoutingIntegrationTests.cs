@@ -8,6 +8,8 @@ using OrderRouting.Api.Data;
 using OrderRouting.Api.Models;
 using Xunit;
 
+namespace OrderRouting.IntegrationTests;
+
 public sealed class OrderRoutingIntegrationTests
 {
     [Fact]
