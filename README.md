@@ -4,12 +4,42 @@ Containerized C# service for routing durable medical equipment orders to eligibl
 
 ## Prerequisites
 
-- .NET 10 SDK
 - Docker
+- .NET 10 SDK, only for local development, tests, and diagnostics
 
 This project targets `net10.0` because the available local SDK/runtime in this workspace is .NET 10.
 
-## Run Locally
+## Run With Docker
+
+Build the image:
+
+```powershell
+docker build -t order-routing-service .
+```
+
+Run the container:
+
+```powershell
+docker run --rm -p 8080:8080 order-routing-service
+```
+
+The API listens on port `8080` by default. Verify from another shell:
+
+```powershell
+curl http://localhost:8080/health
+```
+
+To override runtime settings, pass environment variables into the container:
+
+```powershell
+docker run --rm -p 8080:8080 `
+  -e Routing__MaxQueuedRequests=200 `
+  order-routing-service
+```
+
+## Developer Local Run
+
+For local development without Docker, run the API from the .NET CLI.
 
 From the repository root:
 
@@ -103,26 +133,6 @@ The audit loads all service data, checks product/supplier category coverage, rou
 ## Security
 
 Security review findings and production hardening notes are documented in `docs/security-findings.md`.
-
-## Docker
-
-Build the image:
-
-```powershell
-docker build -t order-routing-service .
-```
-
-Run the container:
-
-```powershell
-docker run --rm -p 8080:8080 order-routing-service
-```
-
-Verify from another shell:
-
-```powershell
-curl http://localhost:8080/health
-```
 
 ## Routing Notes
 
